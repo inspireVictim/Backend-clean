@@ -36,6 +36,7 @@ public class UploadController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    [Consumes("multipart/form-data")]
     public async Task<ActionResult> UploadAvatar([FromForm] IFormFile file)
     {
         try
@@ -80,6 +81,7 @@ public class UploadController : ControllerBase
     /// POST /api/v1/upload/partner/logo/{partner_id}
     /// </summary>
     [HttpPost("partner/logo/{partner_id}")]
+    [Consumes("multipart/form-data")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -134,6 +136,7 @@ public class UploadController : ControllerBase
     /// POST /api/v1/upload/partner/cover/{partner_id}
     /// </summary>
     [HttpPost("partner/cover/{partner_id}")]
+    [Consumes("multipart/form-data")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]

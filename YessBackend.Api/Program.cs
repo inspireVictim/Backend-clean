@@ -115,6 +115,41 @@ builder.Services.AddSwaggerGen(options =>
 {
     // Исправляем проблемы с именами схем (избегаем конфликтов имен типов)
     options.CustomSchemaIds(type => type.FullName?.Replace("+", ".") ?? type.Name);
+    
+    // Игнорируем устаревшие действия и свойства
+    options.IgnoreObsoleteActions();
+    options.IgnoreObsoleteProperties();
+    
+    // Обрабатываем конфликтующие действия (берем первое)
+    options.ResolveConflictingActions(apiDescriptions => apiDescriptions.First());
+    
+    // Временно исключаем endpoints с IFormFile из Swagger документации
+    // Для Swashbuckle 6+ требуется специальный OperationFilter с Microsoft.OpenApi.Models
+    // Endpoints будут работать нормально, но не будут отображаться в Swagger UI
+    options.DocInclusionPredicate((docName, apiDesc) =>
+    {
+        // Исключаем UploadController endpoints до настройки правильного фильтра
+        if (apiDesc.RelativePath?.Contains("/upload") == true)
+        {
+            return false;
+        }
+        return true;
+    });
+    
+    // Включаем XML комментарии (если есть)
+    try
+    {
+        var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+        var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+        if (File.Exists(xmlPath))
+        {
+            options.IncludeXmlComments(xmlPath);
+        }
+    }
+    catch
+    {
+        // Игнорируем ошибки при поиске XML файлов
+    }
 });
 
 // EF Core - PostgreSQL
@@ -185,11 +220,16 @@ var enableSwagger = app.Environment.IsDevelopment() ||
 if (enableSwagger)
 {
     // Swagger middleware ПЕРЕД обработчиком исключений
-    app.UseSwagger();
+    // Добавляем обработку ошибок для Swagger
+    app.UseSwagger(c =>
+    {
+        c.RouteTemplate = "swagger/{documentName}/swagger.json";
+    });
     app.UseSwaggerUI(c =>
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "YESS API v1");
         c.RoutePrefix = "docs"; // /docs для совместимости с FastAPI
+        c.DisplayRequestDuration();
     });
 }
 else
