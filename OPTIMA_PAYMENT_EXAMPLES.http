@@ -1,0 +1,57 @@
+### Примеры запросов для Optima Payment API
+### Используйте эти примеры для тестирования через REST клиент (VS Code REST Client, Postman, etc.)
+
+@baseUrl = http://localhost:8000
+@userId = 1
+@amount = 10.45
+@txnId = 1234567
+@txnDate = 20090815120133
+
+### 1. Проверка счета (check)
+GET {{baseUrl}}/api/v1/optima/payment?command=check&txn_id={{txnId}}&account={{userId}}&sum={{amount}}
+Content-Type: application/xml
+
+###
+
+### 2. Пополнение баланса (pay)
+GET {{baseUrl}}/api/v1/optima/payment?command=pay&txn_id={{txnId}}&txn_date={{txnDate}}&account={{userId}}&sum={{amount}}
+Content-Type: application/xml
+
+###
+
+### 3. Проверка счета - несуществующий пользователь
+GET {{baseUrl}}/api/v1/optima/payment?command=check&txn_id=9999999&account=999999&sum={{amount}}
+Content-Type: application/xml
+
+###
+
+### 4. Проверка счета - сумма слишком мала
+GET {{baseUrl}}/api/v1/optima/payment?command=check&txn_id=8888888&account={{userId}}&sum=0.10
+Content-Type: application/xml
+
+###
+
+### 5. Проверка счета - сумма слишком велика
+GET {{baseUrl}}/api/v1/optima/payment?command=check&txn_id=7777777&account={{userId}}&sum=200000.00
+Content-Type: application/xml
+
+###
+
+### 6. Пополнение баланса - повторный запрос (проверка идемпотентности)
+GET {{baseUrl}}/api/v1/optima/payment?command=pay&txn_id={{txnId}}&txn_date={{txnDate}}&account={{userId}}&sum={{amount}}
+Content-Type: application/xml
+
+###
+
+### 7. Неверная команда
+GET {{baseUrl}}/api/v1/optima/payment?command=invalid&txn_id={{txnId}}&account={{userId}}&sum={{amount}}
+Content-Type: application/xml
+
+###
+
+### 8. Отсутствует обязательный параметр
+GET {{baseUrl}}/api/v1/optima/payment?command=check&txn_id={{txnId}}&account={{userId}}
+Content-Type: application/xml
+
+###
+

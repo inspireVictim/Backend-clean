@@ -206,6 +206,7 @@ builder.Services.AddScoped<INotificationService, YessBackend.Infrastructure.Serv
 builder.Services.AddScoped<IAchievementService, YessBackend.Infrastructure.Services.AchievementService>();
 builder.Services.AddScoped<IPromotionService, YessBackend.Infrastructure.Services.PromotionService>();
 builder.Services.AddScoped<IBankService, YessBackend.Infrastructure.Services.BankService>();
+builder.Services.AddScoped<YessBackend.Application.Services.IOptimaPaymentService, YessBackend.Infrastructure.Services.OptimaPaymentService>();
 
 var app = builder.Build();
 

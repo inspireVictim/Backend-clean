@@ -11,9 +11,19 @@ public class Promotion
     [MaxLength(255)]
     public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }
+    public decimal? DiscountPercent { get; set; }
+    public decimal? DiscountAmount { get; set; }
+    public decimal? MinOrderAmount { get; set; }
+    public decimal? MaxDiscountAmount { get; set; }
+    public int? UsageLimit { get; set; }
+    public int? UsageLimitPerUser { get; set; }
+    public int UsageCount { get; set; } = 0;
+    public DateTime? StartDate { get; set; }
+    public DateTime? EndDate { get; set; }
     public DateTime? ValidUntil { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
 
 public class PromoCode

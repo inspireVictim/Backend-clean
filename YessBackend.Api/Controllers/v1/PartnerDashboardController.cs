@@ -144,7 +144,7 @@ public class PartnerDashboardController : ControllerBase
 
             var totalRevenue = await _context.Transactions
                 .Where(t => t.PartnerId == partner.Id && t.Status == "completed")
-                .SumAsync(t => t.Amount);
+                .SumAsync(t => (decimal?)t.Amount) ?? 0;
 
             return Ok(new
             {
@@ -158,6 +158,89 @@ public class PartnerDashboardController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Ошибка получения статистики партнера");
+            return StatusCode(500, new { error = "Внутренняя ошибка сервера" });
+        }
+    }
+
+    /// <summary>
+    /// Получить статистику дашборда партнера
+    /// GET /api/v1/partner/dashboard/stats
+    /// </summary>
+    [HttpGet("dashboard/stats")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult> GetDashboardStats()
+    {
+        try
+        {
+            var userId = GetCurrentUserId();
+            if (userId == null)
+            {
+                return Unauthorized(new { error = "Неверный токен" });
+            }
+
+            // Получаем партнера
+            var partner = await _context.Partners
+                .FirstOrDefaultAsync(p => p.OwnerId == userId.Value);
+
+            if (partner == null)
+            {
+                var partnerEmployee = await _context.PartnerEmployees
+                    .FirstOrDefaultAsync(pe => pe.UserId == userId.Value);
+                
+                if (partnerEmployee != null)
+                {
+                    partner = await _context.Partners
+                        .FirstOrDefaultAsync(p => p.Id == partnerEmployee.PartnerId);
+                }
+            }
+
+            if (partner == null)
+            {
+                return Forbid("Пользователь не является партнером");
+            }
+
+            // Подсчитываем расширенную статистику
+            var totalOrders = await _context.Orders
+                .CountAsync(o => o.PartnerId == partner.Id);
+
+            var completedOrders = await _context.Orders
+                .CountAsync(o => o.PartnerId == partner.Id && o.Status == Domain.Entities.OrderStatus.Completed);
+
+            var totalTransactions = await _context.Transactions
+                .CountAsync(t => t.PartnerId == partner.Id);
+
+            var totalRevenue = await _context.Transactions
+                .Where(t => t.PartnerId == partner.Id && t.Status == "completed")
+                .SumAsync(t => (decimal?)t.Amount) ?? 0;
+
+            var todayRevenue = await _context.Transactions
+                .Where(t => t.PartnerId == partner.Id && 
+                           t.Status == "completed" && 
+                           t.CreatedAt.Date == DateTime.UtcNow.Date)
+                .SumAsync(t => (decimal?)t.Amount) ?? 0;
+
+            var locationsCount = await _context.PartnerLocations
+                .CountAsync(l => l.PartnerId == partner.Id && l.IsActive);
+
+            return Ok(new
+            {
+                data = new
+                {
+                    partner_id = partner.Id,
+                    partner_name = partner.Name,
+                    total_orders = totalOrders,
+                    completed_orders = completedOrders,
+                    total_transactions = totalTransactions,
+                    total_revenue = totalRevenue,
+                    today_revenue = todayRevenue,
+                    locations_count = locationsCount
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Ошибка получения статистики дашборда партнера");
             return StatusCode(500, new { error = "Внутренняя ошибка сервера" });
         }
     }

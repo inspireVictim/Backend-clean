@@ -26,4 +26,7 @@ public class PartnerEmployee
     // Navigation properties
     [ForeignKey("PartnerId")]
     public virtual Partner Partner { get; set; } = null!;
+    
+    [ForeignKey("UserId")]
+    public virtual User User { get; set; } = null!;
 }
