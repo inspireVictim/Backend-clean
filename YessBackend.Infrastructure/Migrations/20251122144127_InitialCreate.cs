@@ -467,7 +467,7 @@ namespace YessBackend.Infrastructure.Migrations
                     EmailVerified = table.Column<bool>(type: "boolean", nullable: false),
                     VerificationCode = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: true),
                     VerificationExpiresAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    DeviceTokens = table.Column<string>(type: "jsonb", nullable: false),
+                    DeviceTokens = table.Column<string>(type: "jsonb", nullable: false, defaultValue: "[]"),
                     PushEnabled = table.Column<bool>(type: "boolean", nullable: false),
                     SmsEnabled = table.Column<bool>(type: "boolean", nullable: false),
                     CityId = table.Column<int>(type: "integer", nullable: true),

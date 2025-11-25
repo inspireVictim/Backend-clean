@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Globalization;
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 using YessBackend.Application.DTOs.OptimaPayment;
 using YessBackend.Application.Enums;
 using YessBackend.Application.Services;
@@ -65,7 +66,10 @@ public class OptimaPaymentController : ControllerBase
     {
         try
         {
-            // Проверка IP-адреса
+            // Сохраняем IP-адрес для логирования
+            var remoteIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            
+            // Проверка IP-адреса (требование QIWI OSMP)
             var ipCheckEnabled = _configuration.GetValue<bool>("OptimaPayment:IpCheckEnabled", true);
             if (ipCheckEnabled)
             {
@@ -74,8 +78,8 @@ public class OptimaPaymentController : ControllerBase
 
                 if (allowedIpRanges.Length > 0)
                 {
-                    var remoteIp = HttpContext.Connection.RemoteIpAddress;
-                    var isAllowed = IpAddressHelper.IsIpInAnySubnet(remoteIp, allowedIpRanges);
+                    var remoteIpAddress = HttpContext.Connection.RemoteIpAddress;
+                    var isAllowed = IpAddressHelper.IsIpInAnySubnet(remoteIpAddress, allowedIpRanges);
 
                     if (!isAllowed)
                     {
@@ -84,9 +88,17 @@ public class OptimaPaymentController : ControllerBase
                             remoteIp,
                             string.Join(", ", allowedIpRanges));
 
+                        // Возвращаем XML в формате QIWI при ошибке доступа
+                        var errorResponse = new OptimaPaymentResponseDto
+                        {
+                            OsmpTxnId = txn_id ?? "unknown",
+                            Sum = 0,
+                            Result = OptimaResultCode.OtherError,
+                            Comment = "Доступ запрещен"
+                        };
                         Response.StatusCode = (int)HttpStatusCode.Forbidden;
                         return Content(
-                            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><error><message>Access denied</message></error>",
+                            XmlResponseHelper.GenerateXmlResponse(errorResponse),
                             "application/xml; charset=utf-8");
                     }
                 }
@@ -95,28 +107,72 @@ public class OptimaPaymentController : ControllerBase
             // Валидация обязательных параметров
             if (string.IsNullOrWhiteSpace(command))
             {
-                return BadRequest(GenerateErrorXml("command", "Параметр command обязателен"));
+                var errorResponse = new OptimaPaymentResponseDto
+                {
+                    OsmpTxnId = txn_id ?? "unknown",
+                    Sum = 0,
+                    Result = OptimaResultCode.OtherError,
+                    Comment = "Параметр command обязателен"
+                };
+                return Content(XmlResponseHelper.GenerateXmlResponse(errorResponse), "application/xml; charset=utf-8");
             }
 
             if (string.IsNullOrWhiteSpace(txn_id))
             {
-                return BadRequest(GenerateErrorXml("txn_id", "Параметр txn_id обязателен"));
+                var errorResponse = new OptimaPaymentResponseDto
+                {
+                    OsmpTxnId = "unknown",
+                    Sum = 0,
+                    Result = OptimaResultCode.OtherError,
+                    Comment = "Параметр txn_id обязателен"
+                };
+                return Content(XmlResponseHelper.GenerateXmlResponse(errorResponse), "application/xml; charset=utf-8");
+            }
+
+            // Валидация txn_id: до 20 цифр (требование QIWI OSMP)
+            if (txn_id.Length > 20 || !Regex.IsMatch(txn_id, @"^\d+$"))
+            {
+                _logger.LogWarning("Invalid txn_id format: {TxnId}", txn_id);
+                var errorResponse = new OptimaPaymentResponseDto
+                {
+                    OsmpTxnId = txn_id,
+                    Sum = 0,
+                    Result = OptimaResultCode.OtherError,
+                    Comment = "Неверный формат txn_id (до 20 цифр)"
+                };
+                return Content(XmlResponseHelper.GenerateXmlResponse(errorResponse), "application/xml; charset=utf-8");
             }
 
             if (string.IsNullOrWhiteSpace(account))
             {
-                return BadRequest(GenerateErrorXml("account", "Параметр account обязателен"));
+                var errorResponse = new OptimaPaymentResponseDto
+                {
+                    OsmpTxnId = txn_id,
+                    Sum = 0,
+                    Result = OptimaResultCode.InvalidAccountFormat,
+                    Comment = "Параметр account обязателен"
+                };
+                return Content(XmlResponseHelper.GenerateXmlResponse(errorResponse), "application/xml; charset=utf-8");
             }
 
             if (string.IsNullOrWhiteSpace(sum))
             {
-                return BadRequest(GenerateErrorXml("sum", "Параметр sum обязателен"));
+                var errorResponse = new OptimaPaymentResponseDto
+                {
+                    OsmpTxnId = txn_id,
+                    Sum = 0,
+                    Result = OptimaResultCode.OtherError,
+                    Comment = "Параметр sum обязателен"
+                };
+                return Content(XmlResponseHelper.GenerateXmlResponse(errorResponse), "application/xml; charset=utf-8");
             }
 
-            // Парсинг account (ID пользователя)
-            if (!int.TryParse(account, out int accountId))
+            // Валидация account по регулярному выражению (требование QIWI OSMP: до 50 символов, буквы, цифры, спецсимволы)
+            // В нашем случае: только цифры от 1 до 10 символов
+            var accountRegex = new Regex(@"^[0-9]{1,10}$", RegexOptions.Compiled);
+            if (!accountRegex.IsMatch(account))
             {
-                _logger.LogWarning("Invalid account format: {Account}", account);
+                _logger.LogWarning("Invalid account format (regex validation): {Account}", account);
                 var response = new OptimaPaymentResponseDto
                 {
                     OsmpTxnId = txn_id,
@@ -127,10 +183,40 @@ public class OptimaPaymentController : ControllerBase
                 return Content(XmlResponseHelper.GenerateXmlResponse(response), "application/xml; charset=utf-8");
             }
 
-            // Парсинг суммы
-            if (!decimal.TryParse(sum, NumberStyles.Float, CultureInfo.InvariantCulture, out decimal sumDecimal))
+            // Парсинг account (ID пользователя)
+            if (!int.TryParse(account, out int accountId) || accountId <= 0)
             {
-                _logger.LogWarning("Invalid sum format: {Sum}", sum);
+                _logger.LogWarning("Invalid account format (not a valid integer): {Account}", account);
+                var response = new OptimaPaymentResponseDto
+                {
+                    OsmpTxnId = txn_id,
+                    Sum = 0,
+                    Result = OptimaResultCode.InvalidAccountFormat,
+                    Comment = "Неверный формат идентификатора абонента"
+                };
+                return Content(XmlResponseHelper.GenerateXmlResponse(response), "application/xml; charset=utf-8");
+            }
+
+            // Валидация формата суммы (требование QIWI OSMP: дробное число с точностью до сотых, разделитель точка)
+            // Формат: 10.45, 152.00 (всегда с точкой и двумя десятичными знаками)
+            var sumRegex = new Regex(@"^\d+\.\d{2}$", RegexOptions.Compiled);
+            if (!sumRegex.IsMatch(sum))
+            {
+                _logger.LogWarning("Invalid sum format (must be decimal with 2 decimal places): {Sum}", sum);
+                var response = new OptimaPaymentResponseDto
+                {
+                    OsmpTxnId = txn_id,
+                    Sum = 0,
+                    Result = OptimaResultCode.OtherError,
+                    Comment = "Неверный формат суммы (требуется формат: 10.45)"
+                };
+                return Content(XmlResponseHelper.GenerateXmlResponse(response), "application/xml; charset=utf-8");
+            }
+
+            // Парсинг суммы
+            if (!decimal.TryParse(sum, NumberStyles.Float, CultureInfo.InvariantCulture, out decimal sumDecimal) || sumDecimal <= 0)
+            {
+                _logger.LogWarning("Invalid sum format (not a valid decimal): {Sum}", sum);
                 var response = new OptimaPaymentResponseDto
                 {
                     OsmpTxnId = txn_id,
@@ -141,12 +227,22 @@ public class OptimaPaymentController : ControllerBase
                 return Content(XmlResponseHelper.GenerateXmlResponse(response), "application/xml; charset=utf-8");
             }
 
+            // Подготовка raw запроса для логирования (требование QIWI OSMP - сохранение для сверки)
+            var rawRequest = $"?command={command}&txn_id={txn_id}&account={account}&sum={sum}" +
+                           (!string.IsNullOrWhiteSpace(txn_date) ? $"&txn_date={txn_date}" : "");
+
             OptimaPaymentResponseDto responseDto;
 
             // Обработка команды check
             if (command.ToLowerInvariant() == "check")
             {
-                responseDto = await _optimaPaymentService.CheckAccountAsync(accountId, txn_id, sumDecimal);
+                responseDto = await _optimaPaymentService.CheckAccountAsync(
+                    accountId, 
+                    txn_id, 
+                    sumDecimal,
+                    ipAddress: remoteIp,
+                    userAgent: Request.Headers["User-Agent"].ToString(),
+                    rawRequest: rawRequest);
             }
             // Обработка команды pay
             else if (command.ToLowerInvariant() == "pay")
@@ -156,16 +252,27 @@ public class OptimaPaymentController : ControllerBase
                 // Парсинг txn_date если передан
                 if (!string.IsNullOrWhiteSpace(txn_date))
                 {
-                    // Формат: ГГГГММДДЧЧММСС
+                    // Формат: ГГГГММДДЧЧММСС (требование QIWI OSMP)
                     if (txn_date.Length == 14 &&
                         DateTime.TryParseExact(txn_date, "yyyyMMddHHmmss", CultureInfo.InvariantCulture, 
                             DateTimeStyles.None, out DateTime parsedDate))
                     {
                         txnDate = parsedDate;
                     }
+                    else
+                    {
+                        _logger.LogWarning("Invalid txn_date format: {TxnDate}. Expected format: yyyyMMddHHmmss", txn_date);
+                    }
                 }
 
-                responseDto = await _optimaPaymentService.ProcessPaymentAsync(accountId, txn_id, sumDecimal, txnDate);
+                responseDto = await _optimaPaymentService.ProcessPaymentAsync(
+                    accountId, 
+                    txn_id, 
+                    sumDecimal, 
+                    txnDate,
+                    ipAddress: remoteIp,
+                    userAgent: Request.Headers["User-Agent"].ToString(),
+                    rawRequest: rawRequest);
             }
             else
             {
@@ -179,13 +286,24 @@ public class OptimaPaymentController : ControllerBase
                 };
             }
 
+            // Генерируем XML ответ
             var xmlResponse = XmlResponseHelper.GenerateXmlResponse(responseDto);
+            
+            // Логирование успешной обработки
+            _logger.LogInformation(
+                "Optima payment processed: Command={Command}, TxnId={TxnId}, Account={Account}, Sum={Sum}, Result={Result}, IP={RemoteIp}",
+                command, txn_id, account, sumDecimal, responseDto.Result, remoteIp);
+
+            // Устанавливаем правильный Content-Type для XML UTF-8 (требование QIWI OSMP)
+            Response.ContentType = "application/xml; charset=utf-8";
             return Content(xmlResponse, "application/xml; charset=utf-8");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing Optima payment request");
+            _logger.LogError(ex, "Error processing Optima payment request: Command={Command}, TxnId={TxnId}, Account={Account}",
+                command, txn_id, account);
             
+            // При любой ошибке возвращаем XML в формате QIWI (требование протокола)
             var errorResponse = new OptimaPaymentResponseDto
             {
                 OsmpTxnId = txn_id ?? "unknown",
@@ -194,13 +312,9 @@ public class OptimaPaymentController : ControllerBase
                 Comment = "Внутренняя ошибка сервера"
             };
             
+            Response.ContentType = "application/xml; charset=utf-8";
             return Content(XmlResponseHelper.GenerateXmlResponse(errorResponse), "application/xml; charset=utf-8");
         }
-    }
-
-    private string GenerateErrorXml(string parameter, string message)
-    {
-        return $"<?xml version=\"1.0\" encoding=\"UTF-8\"?><error><parameter>{parameter}</parameter><message>{message}</message></error>";
     }
 }
 

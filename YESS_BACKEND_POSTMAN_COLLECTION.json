@@ -1,0 +1,441 @@
+{
+	"info": {
+		"_postman_id": "yess-backend-diagnostics-server",
+		"name": "Yess Backend - Diagnostics & API",
+		"description": "Коллекция запросов для тестирования Yess Backend API на сервере 5.59.232.211:8000\n\n⚠️ ВСЕ ЗАПРОСЫ ИДУТ НА СЕРВЕР, НЕ НА LOCALHOST!",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "yess-backend"
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://5.59.232.211:8000",
+			"type": "string",
+			"description": "⚠️ СЕРВЕР: Не используйте localhost! Все запросы идут на 5.59.232.211:8000"
+		},
+		{
+			"key": "api_version",
+			"value": "v1",
+			"type": "string"
+		},
+		{
+			"key": "access_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "refresh_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "verification_code",
+			"value": "",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "1. Diagnostics - Проверка сервера",
+			"item": [
+				{
+					"name": "GET - Root (Basic)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/",
+							"host": ["{{base_url}}"],
+							"path": [""]
+						},
+						"description": "Базовая проверка доступности сервера"
+					}
+				},
+				{
+					"name": "GET - Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/health",
+							"host": ["{{base_url}}"],
+							"path": ["health"]
+						},
+						"description": "Проверка здоровья сервера (базовая)"
+					}
+				},
+				{
+					"name": "GET - Health Check Full",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/health",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "health"]
+						},
+						"description": "Полная проверка здоровья с БД и Redis"
+					}
+				},
+				{
+					"name": "POST - Send Verification Code (Диагностика)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"// Проверка что запрос на СЕРВЕР, не localhost",
+									"pm.test('URL contains server IP', function () {",
+									"    pm.expect(pm.request.url.toString()).to.include('5.59.232.211');",
+									"});",
+									"",
+									"pm.test('URL does NOT contain localhost', function () {",
+									"    pm.expect(pm.request.url.toString()).to.not.include('localhost');",
+									"    pm.expect(pm.request.url.toString()).to.not.include('127.0.0.1');",
+									"});",
+									"",
+									"pm.test('Status code is 200 or 400', function () {",
+									"    pm.expect(pm.response.code).to.be.oneOf([200, 400]);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    const jsonData = pm.response.json();",
+									"    if (jsonData.code || jsonData.verification_code) {",
+									"        pm.collectionVariables.set('verification_code', jsonData.code || jsonData.verification_code);",
+									"        console.log('✅ Код сохранен:', pm.collectionVariables.get('verification_code'));",
+									"    }",
+									"    console.log('✅ POST на СЕРВЕР работает!');",
+									"} else {",
+									"    console.log('⚠️ Ответ:', pm.response.code);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"phone_number\": \"+996700123456\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/auth/send-verification-code",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "auth", "send-verification-code"]
+						},
+						"description": "✅ ОСНОВНОЙ ДИАГНОСТИЧЕСКИЙ POST ЗАПРОС\n\nПроверяет:\n- POST запросы на сервер\n- Обработку JSON\n- Сохраняет код верификации в переменную"
+					}
+				}
+			]
+		},
+		{
+			"name": "2. Authentication - Регистрация и вход",
+			"item": [
+				{
+					"name": "POST - Send Verification Code",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    var code = jsonData.code || jsonData.verification_code;",
+									"    if (code) {",
+									"        pm.collectionVariables.set('verification_code', code);",
+									"        console.log('✅ Код сохранен:', code);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"phone_number\": \"+996700123456\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/auth/send-verification-code",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "auth", "send-verification-code"]
+						},
+						"description": "Отправить SMS код. Код автоматически сохраняется в переменную."
+					}
+				},
+				{
+					"name": "POST - Verify Code and Register",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"phone_number\": \"+996700123456\",\n    \"code\": \"{{verification_code}}\",\n    \"password\": \"SecurePass123\",\n    \"first_name\": \"Иван\",\n    \"last_name\": \"Иванов\",\n    \"city_id\": 1\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/auth/verify-code",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "auth", "verify-code"]
+						},
+						"description": "Верификация кода и регистрация. Использует сохраненный код."
+					}
+				},
+				{
+					"name": "POST - Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    pm.collectionVariables.set('access_token', jsonData.access_token || jsonData.accessToken);",
+									"    pm.collectionVariables.set('refresh_token', jsonData.refresh_token || jsonData.refreshToken);",
+									"    console.log('✅ Токены сохранены');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"phone\": \"+996700123456\",\n    \"password\": \"SecurePass123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/auth/login",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "auth", "login"]
+						},
+						"description": "Вход пользователя. Токены автоматически сохраняются."
+					}
+				},
+				{
+					"name": "GET - Get Current User (Me)",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/auth/me",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "auth", "me"]
+						},
+						"description": "Получить информацию о текущем пользователе"
+					}
+				}
+			]
+		},
+		{
+			"name": "3. Wallet & Payments",
+			"item": [
+				{
+					"name": "GET - Get Balance",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/wallet/balance",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "wallet", "balance"]
+						}
+					}
+				},
+				{
+					"name": "GET - Get Wallet",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/wallet",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "wallet"]
+						}
+					}
+				},
+				{
+					"name": "GET - Get Transactions",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/wallet/transactions?limit=20&offset=0",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "wallet", "transactions"],
+							"query": [
+								{"key": "limit", "value": "20"},
+								{"key": "offset", "value": "0"}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "4. Partners",
+			"item": [
+				{
+					"name": "GET - Partners List",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/partner/list?limit=50&offset=0",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "partner", "list"],
+							"query": [
+								{"key": "limit", "value": "50"},
+								{"key": "offset", "value": "0"}
+							]
+						}
+					}
+				},
+				{
+					"name": "GET - Partners by City",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/partner/list?city_id=1&limit=50",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "partner", "list"],
+							"query": [
+								{"key": "city_id", "value": "1"},
+								{"key": "limit", "value": "50"}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "5. Orders",
+			"item": [
+				{
+					"name": "POST - Calculate Order",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"partnerId\": 1,\n    \"items\": [\n        {\n            \"productId\": 1,\n            \"quantity\": 2,\n            \"price\": 500.00\n        }\n    ]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/orders/calculate",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "orders", "calculate"]
+						}
+					}
+				},
+				{
+					"name": "GET - Get User Orders",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/orders?limit=20&offset=0",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "orders"],
+							"query": [
+								{"key": "limit", "value": "20"},
+								{"key": "offset", "value": "0"}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "6. Promotions & Stories",
+			"item": [
+				{
+					"name": "GET - Promotions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/promotions",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "promotions"]
+						}
+					}
+				},
+				{
+					"name": "GET - Stories",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/stories?limit=50",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "stories"],
+							"query": [{"key": "limit", "value": "50"}]
+						}
+					}
+				}
+			]
+		}
+	]
+}
+
