@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Globalization;
+using System.Net;
 using System.Text;
 using YessBackend.Application.DTOs.OptimaPayment;
 using YessBackend.Application.Enums;
 using YessBackend.Application.Services;
 using YessBackend.Infrastructure.Helpers;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace YessBackend.Api.Controllers.v1;
@@ -20,13 +22,16 @@ public class OptimaPaymentController : ControllerBase
 {
     private readonly IOptimaPaymentService _optimaPaymentService;
     private readonly ILogger<OptimaPaymentController> _logger;
+    private readonly IConfiguration _configuration;
 
     public OptimaPaymentController(
         IOptimaPaymentService optimaPaymentService,
-        ILogger<OptimaPaymentController> logger)
+        ILogger<OptimaPaymentController> logger,
+        IConfiguration configuration)
     {
         _optimaPaymentService = optimaPaymentService;
         _logger = logger;
+        _configuration = configuration;
     }
 
     /// <summary>
@@ -60,6 +65,33 @@ public class OptimaPaymentController : ControllerBase
     {
         try
         {
+            // Проверка IP-адреса
+            var ipCheckEnabled = _configuration.GetValue<bool>("OptimaPayment:IpCheckEnabled", true);
+            if (ipCheckEnabled)
+            {
+                var allowedIpRanges = _configuration.GetSection("OptimaPayment:AllowedIpRanges")
+                    .Get<string[]>() ?? Array.Empty<string>();
+
+                if (allowedIpRanges.Length > 0)
+                {
+                    var remoteIp = HttpContext.Connection.RemoteIpAddress;
+                    var isAllowed = IpAddressHelper.IsIpInAnySubnet(remoteIp, allowedIpRanges);
+
+                    if (!isAllowed)
+                    {
+                        _logger.LogWarning(
+                            "Access denied for IP {RemoteIp} to Optima payment endpoint. Allowed ranges: {AllowedRanges}",
+                            remoteIp,
+                            string.Join(", ", allowedIpRanges));
+
+                        Response.StatusCode = (int)HttpStatusCode.Forbidden;
+                        return Content(
+                            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><error><message>Access denied</message></error>",
+                            "application/xml; charset=utf-8");
+                    }
+                }
+            }
+
             // Валидация обязательных параметров
             if (string.IsNullOrWhiteSpace(command))
             {
