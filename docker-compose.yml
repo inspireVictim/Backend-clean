@@ -15,6 +15,11 @@ services:
       - yess_pg_data:/var/lib/postgresql/data
     networks:
       - yess-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yess_user -d yess_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
@@ -32,8 +37,10 @@ services:
     container_name: csharp-backend
     restart: unless-stopped
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
     ports:
       - "8000:8000"
       - "8443:8443"
