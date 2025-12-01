@@ -8,6 +8,7 @@ using System.Text;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Text.Json.Serialization;
+using System.Security.Claims;
 
 namespace YessBackend.Api.Controllers.v1;
 
@@ -109,16 +110,19 @@ public class AuthController : ControllerBase
     /// <summary>
     /// Обновление access/refresh токенов по refresh токену
     /// POST /api/v1/auth/refresh
+    /// Улучшенная версия с детальной обработкой ошибок и проверками безопасности
     /// </summary>
     [HttpPost("refresh")]
     [Consumes("application/json")]
     [ProducesResponseType(typeof(TokenResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<TokenResponseDto>> Refresh([FromBody] RefreshTokenRequestDto request)
     {
         if (string.IsNullOrWhiteSpace(request.RefreshToken))
         {
+            _logger.LogWarning("Refresh request without token");
             return BadRequest(new { error = "refresh_token is required" });
         }
 
@@ -128,6 +132,7 @@ public class AuthController : ControllerBase
             var secretKey = jwtSection["SecretKey"];
             if (string.IsNullOrEmpty(secretKey))
             {
+                _logger.LogError("JWT SecretKey не настроен в конфигурации");
                 throw new InvalidOperationException("JWT SecretKey не настроен");
             }
 
@@ -143,51 +148,113 @@ public class AuthController : ControllerBase
                 ValidateAudience = true,
                 ValidAudience = jwtSection["Audience"],
                 ValidateLifetime = true,
-                ClockSkew = TimeSpan.Zero
+                ClockSkew = TimeSpan.Zero // Без допуска на расхождение времени
             };
 
-            var principal = tokenHandler.ValidateToken(request.RefreshToken, validationParameters, out var _);
+            SecurityToken validatedToken;
+            ClaimsPrincipal principal;
+            
+            try
+            {
+                principal = tokenHandler.ValidateToken(request.RefreshToken, validationParameters, out validatedToken);
+            }
+            catch (SecurityTokenExpiredException)
+            {
+                _logger.LogInformation("Refresh token expired");
+                return Unauthorized(new { error = "Refresh токен истек. Пожалуйста, войдите заново." });
+            }
+            catch (SecurityTokenInvalidSignatureException ex)
+            {
+                _logger.LogWarning(ex, "⚠️ [SECURITY] Invalid refresh token signature");
+                return Unauthorized(new { error = "Неверный refresh токен" });
+            }
+            catch (SecurityTokenException ex)
+            {
+                _logger.LogWarning(ex, "Security token validation failed");
+                return Unauthorized(new { error = "Неверный refresh токен" });
+            }
 
+            // Проверка типа токена
             var typeClaim = principal.FindFirst("type")?.Value;
             if (!string.Equals(typeClaim, "refresh", StringComparison.OrdinalIgnoreCase))
             {
+                _logger.LogWarning("⚠️ [SECURITY] Attempt to use non-refresh token as refresh token");
                 return Unauthorized(new { error = "Invalid token type" });
             }
 
+            // Получение данных пользователя из токена
             var phone = principal.FindFirst("phone")?.Value ?? principal.Identity?.Name;
+            var userIdClaim = principal.FindFirst("user_id")?.Value ?? 
+                             principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            
             if (string.IsNullOrEmpty(phone))
             {
+                _logger.LogWarning("⚠️ [SECURITY] Refresh token missing phone claim");
                 return Unauthorized(new { error = "Invalid refresh token" });
             }
 
-            var user = await _authService.GetUserByPhoneAsync(phone);
-            if (user == null || !user.IsActive || user.IsBlocked)
+            if (string.IsNullOrEmpty(userIdClaim))
             {
-                return Unauthorized(new { error = "Пользователь не найден или заблокирован" });
+                _logger.LogWarning("⚠️ [SECURITY] Refresh token missing user_id claim");
+                return Unauthorized(new { error = "Invalid refresh token" });
             }
 
+            // Проверка пользователя
+            var user = await _authService.GetUserByPhoneAsync(phone);
+            if (user == null)
+            {
+                _logger.LogWarning("⚠️ [SECURITY] Refresh attempt for non-existent user: Phone={Phone}", phone);
+                return Unauthorized(new { error = "Пользователь не найден" });
+            }
+
+            // Проверка соответствия user_id из токена и БД
+            if (!int.TryParse(userIdClaim, out var userIdFromToken) || userIdFromToken != user.Id)
+            {
+                _logger.LogWarning("⚠️ [SECURITY] User ID mismatch in refresh token: TokenUserId={TokenUserId}, DbUserId={DbUserId}, Phone={Phone}", 
+                    userIdFromToken, user.Id, phone);
+                return Unauthorized(new { error = "Invalid refresh token" });
+            }
+
+            if (!user.IsActive)
+            {
+                _logger.LogWarning("⚠️ [SECURITY] Refresh attempt for inactive user: UserId={UserId}, Phone={Phone}", 
+                    user.Id, phone);
+                return Unauthorized(new { error = "Пользователь деактивирован" });
+            }
+
+            if (user.IsBlocked)
+            {
+                _logger.LogWarning("⚠️ [SECURITY] Refresh attempt for blocked user: UserId={UserId}, Phone={Phone}", 
+                    user.Id, phone);
+                return Unauthorized(new { error = "Пользователь заблокирован" });
+            }
+
+            // Создание новых токенов (Token Rotation)
             var accessToken = _authService.CreateAccessToken(user);
-            var refreshToken = _authService.CreateRefreshToken(user);
+            var newRefreshToken = _authService.CreateRefreshToken(user);
             var expiresMinutes = jwtSection.GetValue<int>("AccessTokenExpireMinutes", 60);
+
+            _logger.LogInformation("✅ Tokens refreshed successfully for user: UserId={UserId}, Phone={Phone}", 
+                user.Id, phone);
 
             var response = new TokenResponseDto
             {
                 AccessToken = accessToken,
-                RefreshToken = refreshToken,
+                RefreshToken = newRefreshToken, // Новый refresh token (rotation)
                 TokenType = "bearer",
                 ExpiresIn = expiresMinutes * 60
             };
 
             return Ok(response);
         }
-        catch (SecurityTokenException ex)
+        catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Неверный refresh токен");
-            return Unauthorized(new { error = "Неверный refresh токен" });
+            _logger.LogError(ex, "Configuration error during token refresh");
+            return StatusCode(500, new { error = "Ошибка конфигурации сервера" });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Ошибка при обновлении токена");
+            _logger.LogError(ex, "❌ Unexpected error during token refresh");
             return StatusCode(500, new { error = "Ошибка сервера при обновлении токена" });
         }
     }

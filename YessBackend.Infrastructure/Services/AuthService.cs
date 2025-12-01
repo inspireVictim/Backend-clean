@@ -391,7 +391,23 @@ public class AuthService : IAuthService
         var secretKey = jwtSettings["SecretKey"] ?? throw new InvalidOperationException("JWT SecretKey не настроен");
         var issuer = jwtSettings["Issuer"] ?? "yess-loyalty";
         var audience = jwtSettings["Audience"] ?? "yess-loyalty";
-        var expiresDays = jwtSettings.GetValue<int>("RefreshTokenExpireDays", 7);
+
+        // Поддержка как дней, так и минут (для обратной совместимости с Docker)
+        var expiresMinutes = jwtSettings.GetValue<int>("RefreshTokenExpireMinutes", -1);
+        double expiresDays;
+
+        if (expiresMinutes > 0)
+        {
+            // Если указаны минуты - конвертируем в дни
+            expiresDays = expiresMinutes / (24.0 * 60.0);
+            _logger?.LogDebug("Using RefreshTokenExpireMinutes: {Minutes} minutes = {Days} days", expiresMinutes, expiresDays);
+        }
+        else
+        {
+            // Иначе используем дни (значение по умолчанию)
+            expiresDays = jwtSettings.GetValue<int>("RefreshTokenExpireDays", 7);
+            _logger?.LogDebug("Using RefreshTokenExpireDays: {Days} days", expiresDays);
+        }
 
         var claims = new[]
         {
