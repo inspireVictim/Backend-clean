@@ -41,8 +41,8 @@ builder.WebHost.ConfigureKestrel(options =>
     else
     {
         // Production: сертификат из переменных окружения
-        var certPath = builder.Configuration["Kestrel:Certificate:Path"];
-        var certPassword = builder.Configuration["Kestrel:Certificate:Password"];
+        var certPath = builder.Configuration["Kestrel:Certificates:Default:Path"];
+        var certPassword = builder.Configuration["Kestrel:Certificates:Default:Password"];
         
         if (!string.IsNullOrWhiteSpace(certPath) && File.Exists(certPath))
         {
@@ -115,8 +115,8 @@ else
 ```ini
 [Service]
 Environment=ASPNETCORE_ENVIRONMENT=Production
-Environment=ASPNETCORE_KESTREL__CERTIFICATE__PATH=/etc/ssl/certs/yess-cert.pfx
-Environment=ASPNETCORE_KESTREL__CERTIFICATE__PASSWORD=YesSGo!@#!
+Environment=ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PATH=/etc/ssl/certs/yess-cert.pfx
+Environment=ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PASSWORD=YesSGo!@#!
 ```
 
 **Для Docker:**
@@ -124,8 +124,8 @@ Environment=ASPNETCORE_KESTREL__CERTIFICATE__PASSWORD=YesSGo!@#!
 ```yaml
 environment:
   - ASPNETCORE_ENVIRONMENT=Production
-  - ASPNETCORE_KESTREL__CERTIFICATE__PATH=/etc/ssl/certs/yess-cert.pfx
-  - ASPNETCORE_KESTREL__CERTIFICATE__PASSWORD=YesSGo!@#!
+  - ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PATH=/etc/ssl/certs/yess-cert.pfx
+  - ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PASSWORD=YesSGo!@#!
 ```
 
 #### Вариант 2: appsettings.Production.json
@@ -133,9 +133,11 @@ environment:
 ```json
 {
   "Kestrel": {
-    "Certificate": {
-      "Path": "/etc/ssl/certs/yess-cert.pfx",
-      "Password": "YesSGo!@#!"
+    "Certificates": {
+      "Default": {
+        "Path": "/etc/ssl/certs/yess-cert.pfx",
+        "Password": "YesSGo!@#!"
+      }
     }
   }
 }
@@ -147,8 +149,8 @@ environment:
 
 ASP.NET Core использует двойное подчёркивание `__` для вложенных свойств:
 
-- `ASPNETCORE_KESTREL__CERTIFICATE__PATH` → `Kestrel:Certificate:Path`
-- `ASPNETCORE_KESTREL__CERTIFICATE__PASSWORD` → `Kestrel:Certificate:Password`
+- `ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PATH` → `Kestrel:Certificates:Default:Path`
+- `ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PASSWORD` → `Kestrel:Certificates:Default:Password`
 
 ## 🔍 Проверка работы
 
@@ -182,7 +184,7 @@ sudo journalctl -u yess-backend -f
 
 # Production (без сертификата):
 #   - "HTTP настроен на порту 5000 для обратного прокси"
-#   - "HTTPS не настроен: переменная окружения ASPNETCORE_KESTREL__CERTIFICATE__PATH не задана..."
+#   - "HTTPS не настроен: переменная окружения ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PATH не задана..."
 ```
 
 ### Проверка процессов
@@ -230,8 +232,8 @@ RestartSec=10
 User=yesgoadm
 Group=yesgoadm
 Environment=ASPNETCORE_ENVIRONMENT=Production
-Environment=ASPNETCORE_KESTREL__CERTIFICATE__PATH=/etc/ssl/certs/yess-cert.pfx
-Environment=ASPNETCORE_KESTREL__CERTIFICATE__PASSWORD=YesSGo!@#!
+Environment=ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PATH=/etc/ssl/certs/yess-cert.pfx
+Environment=ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PASSWORD=YesSGo!@#!
 StandardOutput=journal
 StandardError=journal
 

@@ -64,14 +64,15 @@ builder.WebHost.ConfigureKestrel(options =>
     {
         // Production: Загружаем сертификат из переменных окружения
         // Переменные окружения читаются через Configuration (двойное подчёркивание преобразуется в двоеточие)
-        var certPath = builder.Configuration["Kestrel:Certificate:Path"];
-        var certPassword = builder.Configuration["Kestrel:Certificate:Password"];
+        // Используем правильную секцию: Kestrel:Certificates:Default:Path
+        var certPath = builder.Configuration["Kestrel:Certificates:Default:Path"];
+        var certPassword = builder.Configuration["Kestrel:Certificates:Default:Password"];
         
         // Проверка пути к сертификату
         if (string.IsNullOrWhiteSpace(certPath))
         {
             kestrelLogger.LogWarning(
-                "HTTPS не настроен: переменная окружения ASPNETCORE_KESTREL__CERTIFICATE__PATH не задана. " +
+                "HTTPS не настроен: переменная окружения ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PATH не задана. " +
                 "Приложение будет работать только по HTTP на порту 5000");
         }
         else if (!File.Exists(certPath))
@@ -333,7 +334,8 @@ if (app.Environment.IsDevelopment())
 else
 {
     // Production: HTTPS redirect и HSTS только если HTTPS настроен
-    var certPath = configuration["Kestrel:Certificate:Path"];
+    // Используем правильную секцию: Kestrel:Certificates:Default:Path
+    var certPath = configuration["Kestrel:Certificates:Default:Path"];
     var httpsConfigured = !string.IsNullOrWhiteSpace(certPath) && File.Exists(certPath);
     
     if (httpsConfigured)

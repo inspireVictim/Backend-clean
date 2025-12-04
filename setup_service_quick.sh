@@ -62,8 +62,8 @@ SyslogIdentifier=$SERVICE_NAME
 User=$APP_USER
 Group=$APP_GROUP
 Environment=ASPNETCORE_ENVIRONMENT=Production
-Environment=ASPNETCORE_KESTREL__CERTIFICATE__PATH=/etc/ssl/certs/yess-cert.pfx
-Environment=ASPNETCORE_KESTREL__CERTIFICATE__PASSWORD=YesSGo!@#!
+Environment=ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PATH=/etc/ssl/certs/yess-cert.pfx
+Environment=ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PASSWORD=YesSGo!@#!
 StandardOutput=journal
 StandardError=journal
 
@@ -105,6 +105,6 @@ echo "🔍 Проверка портов 5000 (HTTP) и 5001 (HTTPS):"
 sudo netstat -tlnp | grep -E '(5000|5001)' || echo "⚠️  Порты не слушаются. Проверьте логи."
 echo ""
 echo "📝 Переменные окружения установлены:"
-echo "   ASPNETCORE_KESTREL__CERTIFICATE__PATH=/etc/ssl/certs/yess-cert.pfx"
-echo "   ASPNETCORE_KESTREL__CERTIFICATE__PASSWORD=YesSGo!@#!"
+echo "   ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PATH=/etc/ssl/certs/yess-cert.pfx"
+echo "   ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PASSWORD=YesSGo!@#!"
 
