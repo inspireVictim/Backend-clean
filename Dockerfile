@@ -37,13 +37,14 @@ COPY --from=build /app/publish .
 RUN mkdir -p /app/uploads && chmod 777 /app/uploads
 
 # Открываем порты (HTTP и HTTPS)
-EXPOSE 8000
-EXPOSE 8443
+# HTTP на 5000 (внутренний) → 8000 (внешний)
+# HTTPS на 5001 (внутренний) → 8443 (внешний)
+EXPOSE 5000
+EXPOSE 5001
 
-# Устанавливаем переменные окружения (только HTTP, HTTPS только если есть сертификат)
-ENV ASPNETCORE_URLS=http://+:8000
+# Устанавливаем переменные окружения
+# HTTPS настраивается через переменные окружения или конфигурацию Kestrel в Program.cs
 ENV ASPNETCORE_ENVIRONMENT=Production
-ENV ASPNETCORE_HTTPS_PORT=8443
 
 # Запускаем приложение
 ENTRYPOINT ["dotnet", "YessBackend.Api.dll"]

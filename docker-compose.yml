@@ -42,8 +42,8 @@ services:
       redis:
         condition: service_started
     ports:
-      - "8000:8000"
-      - "8443:8443"
+      - "8000:5000"   # HTTP: внешний порт 8000 → внутренний 5000
+      - "8443:5001"   # HTTPS: внешний порт 8443 → внутренний 5001
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - EnableSwagger=true
@@ -55,6 +55,15 @@ services:
       - Jwt__AccessTokenExpireMinutes=30
       - Jwt__RefreshTokenExpireMinutes=10080
       - Cors__Origins=["http://localhost:3000","http://localhost:3001","http://localhost:3002","http://127.0.0.1:3000","http://127.0.0.1:3001","http://127.0.0.1:3002"]
+      # HTTPS Certificate
+      # После создания сертификата через setup_cert_for_docker.sh (или .ps1) раскомментируйте:
+      - ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PATH=/etc/ssl/certs/yess-cert.pfx
+      - ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PASSWORD=YesSGo!@#!
+    volumes:
+      # Volume для SSL сертификатов (монтируется из ./certs на хосте)
+      # После создания сертификата раскомментируйте:
+      - ./certs:/etc/ssl/certs:ro
+      - ./uploads:/app/uploads
     networks:
       - yess-network
 

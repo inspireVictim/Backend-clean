@@ -45,6 +45,21 @@ if [ -f "$SERVICE_FILE" ]; then
     fi
 fi
 
+# Проверяем наличие сертификата
+CERT_PATH="/etc/ssl/certs/yess-cert.pfx"
+CERT_PASSWORD="YesSGo!@#!"
+
+if [ -f "$CERT_PATH" ]; then
+    echo "✅ Сертификат найден: $CERT_PATH"
+    CERT_ENV_LINES="Environment=ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PATH=$CERT_PATH
+Environment=ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PASSWORD=$CERT_PASSWORD"
+else
+    echo "⚠️  Сертификат не найден: $CERT_PATH"
+    echo "   Приложение будет работать только по HTTP (порт 5000)"
+    echo "   После создания сертификата обновите service файл или перезапустите этот скрипт"
+    CERT_ENV_LINES=""
+fi
+
 # Создаём service файл
 echo "📝 Создание service файла..."
 sudo tee "$SERVICE_FILE" > /dev/null <<EOF
@@ -62,8 +77,7 @@ SyslogIdentifier=$SERVICE_NAME
 User=$APP_USER
 Group=$APP_GROUP
 Environment=ASPNETCORE_ENVIRONMENT=Production
-Environment=ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PATH=/etc/ssl/certs/yess-cert.pfx
-Environment=ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PASSWORD=YesSGo!@#!
+$CERT_ENV_LINES
 StandardOutput=journal
 StandardError=journal
 
