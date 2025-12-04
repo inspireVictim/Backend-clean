@@ -24,6 +24,9 @@ var builder = WebApplication.CreateBuilder(args);
 // Переменные окружения имеют формат: ASPNETCORE_KESTREL__CERTIFICATE__PATH (двойное подчёркивание)
 builder.Configuration.AddEnvironmentVariables(prefix: "ASPNETCORE_");
 
+// Флаг для отслеживания успешной настройки HTTPS endpoint
+bool httpsAvailable = false;
+
 // Создаём временный logger для ConfigureKestrel (до полной инициализации)
 var tempLoggerFactory = LoggerFactory.Create(logging => 
 {
@@ -58,6 +61,7 @@ builder.WebHost.ConfigureKestrel(options =>
         {
             listenOptions.UseHttps(); // Автоматически использует dev-сертификат ASP.NET Core
         });
+        httpsAvailable = true;
         kestrelLogger.LogInformation("HTTPS настроен для Development на порту 5001 с dev-сертификатом");
     }
     else
@@ -101,6 +105,7 @@ builder.WebHost.ConfigureKestrel(options =>
                     }
                 });
                 
+                httpsAvailable = true;
                 kestrelLogger.LogInformation(
                     "HTTPS настроен для Production на порту 5001 с сертификатом '{CertPath}'",
                     certPath);
@@ -326,30 +331,27 @@ if (enableSwagger)
     });
 }
 
-// HTTPS Redirection всегда включён в Development (dev-сертификат всегда доступен)
-if (app.Environment.IsDevelopment())
+// HTTPS Redirection настраивается только если HTTPS endpoint успешно загружен
+var logger = app.Services.GetRequiredService<ILogger<Program>>();
+
+if (httpsAvailable)
 {
     app.UseHttpsRedirection();
-}
-else
-{
-    // Production: HTTPS redirect и HSTS только если HTTPS настроен
-    // Используем правильную секцию: Kestrel:Certificates:Default:Path
-    var certPath = configuration["Kestrel:Certificates:Default:Path"];
-    var httpsConfigured = !string.IsNullOrWhiteSpace(certPath) && File.Exists(certPath);
     
-    if (httpsConfigured)
+    // HSTS только в Production (в Development не нужен)
+    if (!app.Environment.IsDevelopment())
     {
-        app.UseHttpsRedirection();
         app.UseHsts();
-        var logger = app.Services.GetRequiredService<ILogger<Program>>();
-        logger.LogInformation("HTTPS Redirection и HSTS включены для Production");
+        logger.LogInformation("HTTPS Redirection и HSTS включены");
     }
     else
     {
-        var logger = app.Services.GetRequiredService<ILogger<Program>>();
-        logger.LogWarning("HTTPS не настроен - HTTPS Redirection и HSTS отключены");
+        logger.LogInformation("HTTPS Redirection включён для Development");
     }
+}
+else
+{
+    logger.LogWarning("HTTPS недоступен, редирект отключен");
 }
 
 // Глобальный обработчик исключений (после Swagger, чтобы не перехватывать ошибки генерации документации)
