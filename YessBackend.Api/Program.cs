@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Linq;
+using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Extensions.Caching.StackExchangeRedis;
@@ -16,10 +17,18 @@ using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Настройка Kestrel (использует переменную окружения ASPNETCORE_URLS или настройки из appsettings.json)
-// В Docker контейнере используется ASPNETCORE_URLS=http://+:8000
+// Настройка конфигурации для поддержки переменных окружения
+// Переменные окружения имеют формат: ASPNETCORE_KESTREL__CERTIFICATE__PATH (двойное подчёркивание)
+builder.Configuration.AddEnvironmentVariables(prefix: "ASPNETCORE_");
+
+// Настройка Kestrel
+// HTTP на 5000 (или 8000) для обратного прокси (nginx)
+// HTTPS на 5001 (или 8443) для прямого доступа
 builder.WebHost.ConfigureKestrel(options =>
 {
+    var loggerFactory = LoggerFactory.Create(logging => logging.AddConsole().SetMinimumLevel(LogLevel.Warning));
+    var logger = loggerFactory.CreateLogger("Kestrel");
+    
     // Настройка многопоточности для поддержки 10-15 одновременных соединений (требование QIWI OSMP v1.4)
     var maxConcurrentConnections = builder.Configuration.GetValue<int>("Kestrel:Limits:MaxConcurrentConnections", 15);
     options.Limits.MaxConcurrentConnections = maxConcurrentConnections;
@@ -29,35 +38,107 @@ builder.WebHost.ConfigureKestrel(options =>
     options.Limits.KeepAliveTimeout = TimeSpan.FromSeconds(60);
     options.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(60);
     
-    // Проверяем наличие сертификата для HTTPS (работает в Development и Production)
-    // Поддерживаем переменные окружения для безопасности (приоритет выше, чем appsettings.json)
-    var certPath = Environment.GetEnvironmentVariable("SSL_CERT_PATH") 
-        ?? builder.Configuration["Kestrel:Certificates:Default:Path"];
-    var certPassword = Environment.GetEnvironmentVariable("SSL_CERT_PASSWORD") 
-        ?? builder.Configuration["Kestrel:Certificates:Default:Password"];
+    // HTTP endpoint всегда включён для обратного прокси (nginx)
+    // По умолчанию порт 5000, можно переопределить через конфигурацию или ASPNETCORE_URLS
+    var httpPort = builder.Configuration.GetValue<int>("Kestrel:Endpoints:Http:Port", 5000);
+    options.Listen(IPAddress.Any, httpPort, listenOptions =>
+    {
+        listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2;
+    });
     
-    if (!string.IsNullOrEmpty(certPath) && System.IO.File.Exists(certPath))
+    // Настройка HTTPS в зависимости от окружения
+    // По умолчанию порт 5001, можно переопределить через конфигурацию
+    var httpsPort = builder.Configuration.GetValue<int>("Kestrel:Endpoints:Https:Port", 5001);
+    
+    if (builder.Environment.IsDevelopment())
     {
-        // Если сертификат указан и существует - добавляем HTTPS на порт 8443
-        options.Listen(IPAddress.Any, 8443, listenOptions =>
+        // Development: Используем встроенный dev-сертификат
+        options.Listen(IPAddress.Any, httpsPort, listenOptions =>
         {
-            if (!string.IsNullOrEmpty(certPassword))
-            {
-                listenOptions.UseHttps(new System.Security.Cryptography.X509Certificates.X509Certificate2(certPath, certPassword));
-            }
-            else
-            {
-                listenOptions.UseHttps(new System.Security.Cryptography.X509Certificates.X509Certificate2(certPath));
-            }
+            listenOptions.UseHttps(); // Использует dev-сертификат ASP.NET Core
         });
+        logger.LogInformation("HTTPS настроен для Development на порту {Port} с dev-сертификатом", httpsPort);
     }
-    else if (builder.Environment.IsDevelopment())
+    else
     {
-        // В Development режиме используем встроенный dev сертификат (если сертификат не указан)
-        options.Listen(IPAddress.Any, 8443, listenOptions =>
+        // Production: Загружаем сертификат из переменных окружения или конфигурации
+        // Поддерживаем формат ASPNETCORE_KESTREL__CERTIFICATE__PATH и ASPNETCORE_KESTREL__CERTIFICATE__PASSWORD
+        var certPath = Environment.GetEnvironmentVariable("ASPNETCORE_KESTREL__CERTIFICATE__PATH")
+            ?? builder.Configuration["Kestrel:Certificates:Default:Path"]
+            ?? builder.Configuration["Kestrel:Certificate:Path"];
+            
+        var certPassword = Environment.GetEnvironmentVariable("ASPNETCORE_KESTREL__CERTIFICATE__PASSWORD")
+            ?? builder.Configuration["Kestrel:Certificates:Default:Password"]
+            ?? builder.Configuration["Kestrel:Certificate:Password"];
+        
+        if (string.IsNullOrEmpty(certPath))
         {
-            listenOptions.UseHttps(); // Использует dev сертификат ASP.NET Core
-        });
+            logger.LogWarning(
+                "⚠️ HTTPS не настроен: переменная окружения ASPNETCORE_KESTREL__CERTIFICATE__PATH не задана и путь к сертификату не найден в конфигурации. " +
+                "Приложение будет работать только по HTTP на порту {HttpPort}.",
+                httpPort);
+        }
+        else if (!File.Exists(certPath))
+        {
+            logger.LogWarning(
+                "⚠️ HTTPS не настроен: файл сертификата не найден по пути '{CertPath}'. " +
+                "Приложение будет работать только по HTTP на порту {HttpPort}.",
+                certPath, httpPort);
+        }
+        else
+        {
+            try
+            {
+                // Попытка загрузить сертификат
+                X509Certificate2 certificate;
+                
+                if (string.IsNullOrEmpty(certPassword))
+                {
+                    certificate = new X509Certificate2(certPath);
+                }
+                else
+                {
+                    certificate = new X509Certificate2(certPath, certPassword);
+                }
+                
+                // Проверяем, что сертификат валиден
+                if (!certificate.HasPrivateKey)
+                {
+                    logger.LogWarning(
+                        "⚠️ Сертификат '{CertPath}' не содержит приватный ключ. HTTPS не будет настроен.",
+                        certPath);
+                }
+                else
+                {
+                    options.Listen(IPAddress.Any, httpsPort, listenOptions =>
+                    {
+                        listenOptions.UseHttps(certificate);
+                    });
+                    
+                    logger.LogInformation(
+                        "✅ HTTPS настроен для Production на порту {Port} с сертификатом '{CertPath}'. Сертификат действителен до {NotAfter}",
+                        httpsPort, certPath, certificate.NotAfter);
+                }
+                
+                // Освобождаем ресурсы (certificate будет использован Kestrel)
+                // certificate.Dispose(); // НЕ освобождаем - Kestrel использует его
+            }
+            catch (System.Security.Cryptography.CryptographicException ex)
+            {
+                logger.LogError(ex,
+                    "❌ Ошибка при загрузке сертификата '{CertPath}': {Message}. " +
+                    "Проверьте правильность пароля и формат файла. HTTPS не будет настроен. " +
+                    "Приложение будет работать только по HTTP на порту {HttpPort}.",
+                    certPath, ex.Message, httpPort);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "❌ Неожиданная ошибка при загрузке сертификата '{CertPath}': {Message}. HTTPS не будет настроен. " +
+                    "Приложение будет работать только по HTTP на порту {HttpPort}.",
+                    certPath, ex.Message, httpPort);
+            }
+        }
     }
 });
 
@@ -265,8 +346,11 @@ if (enableSwagger)
 else
 {
     // Production: HTTPS redirect и HSTS только если HTTPS настроен
-    var certPath = configuration["Kestrel:Certificates:Default:Path"];
-    if (!string.IsNullOrEmpty(certPath) && System.IO.File.Exists(certPath))
+    var certPath = Environment.GetEnvironmentVariable("ASPNETCORE_KESTREL__CERTIFICATE__PATH")
+        ?? configuration["Kestrel:Certificates:Default:Path"]
+        ?? configuration["Kestrel:Certificate:Path"];
+    
+    if (!string.IsNullOrEmpty(certPath) && File.Exists(certPath))
     {
         app.UseHttpsRedirection();
         app.UseHsts();
