@@ -62,9 +62,8 @@ SyslogIdentifier=$SERVICE_NAME
 User=$APP_USER
 Group=$APP_GROUP
 Environment=ASPNETCORE_ENVIRONMENT=Production
-Environment=ASPNETCORE_URLS=http://0.0.0.0:8000
-Environment=SSL_CERT_PATH=/etc/ssl/certs/yess-cert.pfx
-Environment=SSL_CERT_PASSWORD=YesSGo!@#!
+Environment=ASPNETCORE_KESTREL__CERTIFICATE__PATH=/etc/ssl/certs/yess-cert.pfx
+Environment=ASPNETCORE_KESTREL__CERTIFICATE__PASSWORD=YesSGo!@#!
 StandardOutput=journal
 StandardError=journal
 
@@ -102,6 +101,10 @@ echo "   sudo systemctl status $SERVICE_NAME    # Статус"
 echo "   sudo systemctl restart $SERVICE_NAME   # Перезапуск"
 echo "   sudo journalctl -u $SERVICE_NAME -f    # Логи"
 echo ""
-echo "🔍 Проверка порта 8443:"
-sudo netstat -tlnp | grep 8443 || echo "⚠️  Порт 8443 не слушается. Проверьте логи."
+echo "🔍 Проверка портов 5000 (HTTP) и 5001 (HTTPS):"
+sudo netstat -tlnp | grep -E '(5000|5001)' || echo "⚠️  Порты не слушаются. Проверьте логи."
+echo ""
+echo "📝 Переменные окружения установлены:"
+echo "   ASPNETCORE_KESTREL__CERTIFICATE__PATH=/etc/ssl/certs/yess-cert.pfx"
+echo "   ASPNETCORE_KESTREL__CERTIFICATE__PASSWORD=YesSGo!@#!"
 
