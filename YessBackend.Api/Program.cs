@@ -5,6 +5,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Extensions.Caching.StackExchangeRedis;
 using YessBackend.Infrastructure.Data;
