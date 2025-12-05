@@ -329,6 +329,12 @@ builder.Services.AddScoped<YessBackend.Application.Services.IReconciliationServi
 // Background Service для ежедневной сверки
 builder.Services.AddHostedService<YessBackend.Infrastructure.Services.ReconciliationBackgroundService>();
 
+// Configure HTTPS Redirection Options - Fix multiple HTTPS endpoints
+builder.Services.Configure<HttpsRedirectionOptions>(options =>
+{
+    options.HttpsPort = 8443; // Fix multiple HTTPS endpoints
+});
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline
