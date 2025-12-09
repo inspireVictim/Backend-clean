@@ -1,67 +1,95 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.FileProviders;
 using YessBackend.Application.Services;
 
 namespace YessBackend.Infrastructure.Services;
 
-/// <summary>
-/// Сервис файлового хранилища (заглушка)
-/// Возвращает mock URLs вместо реального сохранения файлов
-/// </summary>
 public class StorageService : IStorageService
 {
-    private readonly IConfiguration _configuration;
     private readonly ILogger<StorageService> _logger;
+    private readonly string _uploadsRoot;
+    private readonly string _publicBaseUrl;
 
-    public StorageService(
-        IConfiguration configuration,
-        ILogger<StorageService> logger)
+    public StorageService(IConfiguration configuration, ILogger<StorageService> logger)
     {
-        _configuration = configuration;
         _logger = logger;
+
+        // Путь к папке uploads
+        _uploadsRoot = Path.Combine(Directory.GetCurrentDirectory(), "uploads");
+
+        if (!Directory.Exists(_uploadsRoot))
+            Directory.CreateDirectory(_uploadsRoot);
+
+        _publicBaseUrl = configuration["PublicBaseUrl"]
+                         ?? "http://localhost:5000";
     }
 
-    public Task<string> SaveFileAsync(IFormFile file, string folder, CancellationToken cancellationToken = default)
+    public async Task<string> SaveFileAsync(IFormFile file, string folder, CancellationToken cancellationToken = default)
     {
-        // Валидация формата файла
-        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp", ".pdf" };
-        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-        
-        if (!allowedExtensions.Contains(extension))
+        // Разрешённые расширения
+        var allowedExt = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp", ".pdf" };
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+
+        if (!allowedExt.Contains(ext))
+            throw new InvalidOperationException("Недопустимый формат файла");
+
+        if (file.Length > 10 * 1024 * 1024)
+            throw new InvalidOperationException("Размер файла превышает 10MB");
+
+        // Создаём поддиректорию
+        var targetFolder = Path.Combine(_uploadsRoot, folder);
+        if (!Directory.Exists(targetFolder))
+            Directory.CreateDirectory(targetFolder);
+
+        // Генерируем уникальное имя
+        var fileName = $"{Guid.NewGuid()}{ext}";
+        var fullPath = Path.Combine(targetFolder, fileName);
+
+        // Сохраняем файл
+        await using (var stream = new FileStream(fullPath, FileMode.Create))
         {
-            throw new InvalidOperationException($"Недопустимый формат файла. Разрешены: {string.Join(", ", allowedExtensions)}");
+            await file.CopyToAsync(stream, cancellationToken);
         }
 
-        // Валидация размера файла (максимум 10MB)
-        const long maxFileSize = 10 * 1024 * 1024; // 10MB
-        if (file.Length > maxFileSize)
-        {
-            throw new InvalidOperationException($"Размер файла превышает 10MB");
-        }
-
-        // Генерируем mock URL вместо реального сохранения
-        var guid = Guid.NewGuid();
-        var mockUrl = $"https://storage.example.com/{folder}/{guid}{extension}";
-        
-        _logger.LogInformation(
-            "Mock file saved: {FileName} -> {Url} (actual file not saved, mock only)",
-            file.FileName, mockUrl);
-
-        return Task.FromResult(mockUrl);
+        // Формируем URL для MAUI и фронта
+        var url = $"{_publicBaseUrl}/uploads/{folder}/{fileName}";
+        return url;
     }
 
     public Task<bool> DeleteFileAsync(string fileUrl, CancellationToken cancellationToken = default)
     {
-        // Заглушка - всегда возвращает успех
-        _logger.LogInformation("Mock file delete: {Url} (actual file not deleted, mock only)", fileUrl);
-        return Task.FromResult(true);
+        try
+        {
+            if (!fileUrl.Contains("/uploads/"))
+                return Task.FromResult(false);
+
+            var relative = fileUrl.Split("/uploads/")[1];
+            var path = Path.Combine(_uploadsRoot, relative.Replace("/", Path.DirectorySeparatorChar.ToString()));
+
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+                return Task.FromResult(true);
+            }
+
+            return Task.FromResult(false);
+        }
+        catch
+        {
+            return Task.FromResult(false);
+        }
     }
 
     public Task<bool> FileExistsAsync(string fileUrl, CancellationToken cancellationToken = default)
     {
-        // Заглушка - всегда возвращает true для mock URLs
-        return Task.FromResult(true);
+        if (!fileUrl.Contains("/uploads/"))
+            return Task.FromResult(false);
+
+        var relative = fileUrl.Split("/uploads/")[1];
+        var path = Path.Combine(_uploadsRoot, relative.Replace("/", Path.DirectorySeparatorChar.ToString()));
+
+        return Task.FromResult(File.Exists(path));
     }
 }
-
