@@ -2,9 +2,6 @@ using System.Text.Json.Serialization;
 
 namespace YessBackend.Application.DTOs.FinikPayment;
 
-/// <summary>
-/// Тело запроса для создания платежа в Finik API
-/// </summary>
 public class FinikPaymentRequestBody
 {
     [JsonPropertyName("Amount")]
@@ -23,13 +20,17 @@ public class FinikPaymentRequestBody
     public FinikPaymentData Data { get; set; } = new();
 }
 
-/// <summary>
-/// Данные для QR кода
-/// </summary>
 public class FinikPaymentData
 {
+    // строго в алфавитном порядке
     [JsonPropertyName("accountId")]
     public string AccountId { get; set; } = string.Empty;
+
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
+    [JsonPropertyName("endDate")]
+    public long? EndDate { get; set; }
 
     [JsonPropertyName("merchantCategoryCode")]
     public string MerchantCategoryCode { get; set; } = string.Empty;
@@ -37,16 +38,9 @@ public class FinikPaymentData
     [JsonPropertyName("name_en")]
     public string NameEn { get; set; } = string.Empty;
 
-    [JsonPropertyName("webhookUrl")]
-    public string? WebhookUrl { get; set; }
-
-    [JsonPropertyName("description")]
-    public string? Description { get; set; }
-
     [JsonPropertyName("startDate")]
     public long? StartDate { get; set; }
 
-    [JsonPropertyName("endDate")]
-    public long? EndDate { get; set; }
+    [JsonPropertyName("webhookUrl")]
+    public string? WebhookUrl { get; set; }
 }
-

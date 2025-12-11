@@ -1,11 +1,45 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using YessBackend.Application.Services;
+using Microsoft.EntityFrameworkCore;
+
+using YessBackend.Infrastructure.Data;
+using YessBackend.Application.Interfaces.Payments;
 using YessBackend.Infrastructure.Services;
+using YessBackend.Application.Services;
 
 namespace YessBackend.Infrastructure.Extensions;
 
 public static class DependencyInjection
 {
+    public static IServiceCollection AddInfrastructureServices(
+        this IServiceCollection services,
+        IConfiguration config)
+    {
+        // ==========================
+        // PostgreSQL DbContext
+        // ==========================
+        var connectionString = config.GetConnectionString("DefaultConnection")
+            ?? throw new InvalidOperationException(
+                "Connection string 'DefaultConnection' не найден");
+
+        services.AddDbContext<ApplicationDbContext>(options =>
+        {
+            options.UseNpgsql(connectionString, npgsql =>
+            {
+                npgsql.MigrationsAssembly("YessBackend.Infrastructure");
+                npgsql.CommandTimeout(30);
+            });
+        });
+
+        // ==========================
+        // Финансовые сервисы Finik
+        // ==========================
+        services.AddSingleton<IFinikSignatureService, FinikSignatureService>();
+        services.AddHttpClient<IFinikPaymentService, FinikPaymentService>();
+
+        return services;
+    }
+
     public static IServiceCollection AddYessBackendServices(this IServiceCollection services)
     {
         // 🔐 Auth
@@ -35,7 +69,7 @@ public static class DependencyInjection
         // 🎥 Stories
         services.AddScoped<IStoryService, StoryService>();
 
-        // 🛍 Partner products
+        // 🛍 Products
         services.AddScoped<IPartnerProductService, PartnerProductService>();
 
         // 💳 Payments
@@ -54,9 +88,10 @@ public static class DependencyInjection
         // 🏦 Bank
         services.AddScoped<IBankService, BankService>();
 
-        // Optima / Finik
-        services.AddScoped<IOptimaPaymentService, OptimaPaymentService>();
-        services.AddScoped<YessBackend.Application.Services.IFinikService, FinikService>();
+        // Finik API
+        services.AddScoped<IFinikService, FinikService>();
+
+        // Email & reconciliation
         services.AddScoped<IEmailService, EmailService>();
         services.AddScoped<IReconciliationService, ReconciliationService>();
 

@@ -10,7 +10,7 @@ public interface IFinikPaymentService
     Task<FinikCreatePaymentResponseDto> CreatePaymentAsync(FinikCreatePaymentRequestDto request);
 
     /// <summary>
-    /// Получает публичный ключ Finik для проверки подписи
+    /// Обрабатывает webhook от Finik
     /// </summary>
-    string GetFinikPublicKey();
+    Task<bool> ProcessWebhookAsync(FinikWebhookDto webhook);
 }

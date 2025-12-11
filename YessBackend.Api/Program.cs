@@ -30,27 +30,25 @@ var configuration = builder.Configuration;
 builder.Services.Configure<FinikPaymentConfig>(
     configuration.GetSection("FinikPayment"));
 
-// Регистрируем FinikSignatureService
-builder.Services.AddScoped<YessBackend.Application.Interfaces.Payments.IFinikSignatureService, 
-    YessBackend.Infrastructure.Services.FinikSignatureService>();
+// ВАЖНО: Добавляем сервис подписи обратно
+builder.Services.AddScoped<YessBackend.Application.Interfaces.Payments.IFinikSignatureService, FinikSignatureService>();
 
-// Регистрируем FinikPaymentService с HttpClient
-// Настройка HttpClientHandler для отключения автоматического следования за redirect
-builder.Services.AddHttpClient<YessBackend.Application.Interfaces.Payments.IFinikPaymentService, 
-    YessBackend.Infrastructure.Services.FinikPaymentService>()
+// HttpClient для Finik
+builder.Services.AddHttpClient<IFinikPaymentService, FinikPaymentService>()
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
     {
-        AllowAutoRedirect = false // Не следовать автоматически за redirect (важно для получения Location header)
+        AllowAutoRedirect = false
     });
 
 // =======================
 //       Controllers
 // =======================
+// ❗ Убираем CamelCase → Finik требует строгие имена
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
-        options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
-        options.JsonSerializerOptions.WriteIndented = builder.Environment.IsDevelopment();
+        options.JsonSerializerOptions.PropertyNamingPolicy = null;
+        options.JsonSerializerOptions.DictionaryKeyPolicy = null;
     });
 
 // =======================
@@ -148,8 +146,7 @@ builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructureServices(configuration);
 builder.Services.AddYessBackendServices();
 
-
-// Background Workers
+// Background worker
 builder.Services.AddHostedService<YessBackend.Infrastructure.Services.ReconciliationBackgroundService>();
 
 var app = builder.Build();
@@ -162,7 +159,6 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     db.Database.Migrate();
 }
-
 
 // =======================
 //        Swagger UI

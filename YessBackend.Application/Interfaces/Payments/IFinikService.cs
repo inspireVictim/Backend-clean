@@ -11,8 +11,6 @@ public interface IFinikService
         string? successUrl = null,
         string? cancelUrl = null);
 
-    Task<FinikWebhookDto> GetPaymentStatusAsync(string paymentId);
-
     /// <summary>
     /// Проверяет RSA подпись webhook от Finik
     /// </summary>
@@ -24,5 +22,8 @@ public interface IFinikService
         string jsonBody,
         string signature);
 
+    /// <summary>
+    /// Обработка webhook Finik
+    /// </summary>
     Task<bool> ProcessWebhookAsync(FinikWebhookDto webhook);
 }
