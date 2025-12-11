@@ -1,11 +1,7 @@
 using YessBackend.Application.Config;
 using System.Text;
-using System.IO;
-using System.Security.Cryptography;
-using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.Extensions.Caching.StackExchangeRedis;
 using Microsoft.Extensions.Logging;
 using YessBackend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -18,81 +14,41 @@ using YessBackend.Application.Interfaces.Payments;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// =======================
-//   Kestrel HTTP/HTTPS
-// =======================
-// Флаг для отслеживания успешной настройки HTTPS endpoint
-bool httpsAvailable = false;
+// =============================================
+//   KESTREL — ТОЛЬКО HTTP (Production via nginx)
+// =============================================
 
 builder.WebHost.ConfigureKestrel(options =>
 {
-    // HTTP всегда включён на порту 5000 (для обратного прокси nginx)
+    // HTTP порт — рабочий для nginx reverse-proxy
     options.ListenAnyIP(5000);
-    
+
+    // HTTPS оставляем только для Development
     if (builder.Environment.IsDevelopment())
     {
-        // Development: автоматически использует dev-сертификат
-        options.ListenAnyIP(5001, listenOptions =>
+        options.ListenAnyIP(5001, listen =>
         {
-            listenOptions.UseHttps();
+            listen.UseHttps();
         });
-        httpsAvailable = true;
-    }
-    else
-    {
-        // Production: загрузка сертификата из конфигурации
-        var certPath = builder.Configuration["Kestrel:Certificates:Default:Path"];
-        var certPassword = builder.Configuration["Kestrel:Certificates:Default:Password"];
-        
-        if (!string.IsNullOrWhiteSpace(certPath) && File.Exists(certPath))
-        {
-            try
-            {
-                options.ListenAnyIP(5001, listenOptions =>
-                {
-                    if (string.IsNullOrWhiteSpace(certPassword))
-                        listenOptions.UseHttps(certPath);
-                    else
-                        listenOptions.UseHttps(certPath, certPassword);
-                });
-                httpsAvailable = true;
-            }
-            catch (CryptographicException)
-            {
-                // Логирование будет выполнено после создания logger
-                // Приложение продолжит работу без HTTPS
-            }
-            catch (Exception)
-            {
-                // Обработка других исключений при загрузке сертификата
-                // Приложение продолжит работу без HTTPS
-            }
-        }
     }
 });
 
+// =============================================
+//       CONFIGURATION
+// =============================================
 var configuration = builder.Configuration;
 
-// =======================
-//     Finik Payment
-// =======================
-builder.Services.Configure<FinikPaymentConfig>(
-    configuration.GetSection("FinikPayment"));
+// ====== FINIK Payment ======
+builder.Services.Configure<FinikPaymentConfig>(configuration.GetSection("FinikPayment"));
+builder.Services.AddScoped<IFinikSignatureService, FinikSignatureService>();
 
-// ВАЖНО: Добавляем сервис подписи обратно
-builder.Services.AddScoped<YessBackend.Application.Interfaces.Payments.IFinikSignatureService, FinikSignatureService>();
-
-// HttpClient для Finik
 builder.Services.AddHttpClient<IFinikPaymentService, FinikPaymentService>()
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
     {
         AllowAutoRedirect = false
     });
 
-// =======================
-//       Controllers
-// =======================
-// ❗ Убираем CamelCase → Finik требует строгие имена
+// ====== Controllers ======
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
@@ -100,9 +56,7 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.DictionaryKeyPolicy = null;
     });
 
-// =======================
-//          CORS
-// =======================
+// ====== CORS ======
 var corsOrigins = configuration.GetSection("Cors:Origins").Get<string[]>() ?? Array.Empty<string>();
 
 builder.Services.AddCors(options =>
@@ -110,9 +64,9 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowCors", policy =>
     {
         policy.WithOrigins(corsOrigins)
-              .AllowAnyMethod()
-              .AllowAnyHeader()
-              .AllowCredentials();
+            .AllowAnyMethod()
+            .AllowAnyHeader()
+            .AllowCredentials();
 
         if (builder.Environment.IsDevelopment())
         {
@@ -122,9 +76,7 @@ builder.Services.AddCors(options =>
     });
 });
 
-// =======================
-//          JWT
-// =======================
+// ====== JWT ======
 var jwtSettings = configuration.GetSection("Jwt");
 var secretKey = jwtSettings["SecretKey"]
     ?? throw new InvalidOperationException("JWT SecretKey не настроен");
@@ -138,7 +90,7 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
-    options.RequireHttpsMetadata = false;
+    options.RequireHttpsMetadata = false; // nginx → backend = HTTP
     options.SaveToken = true;
     options.TokenValidationParameters = new TokenValidationParameters
     {
@@ -155,15 +107,11 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 
-// =======================
-//        Swagger
-// =======================
+// ====== Swagger ======
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// =======================
-//    PostgreSQL EF Core
-// =======================
+// ====== EF Core ======
 var connectionString = configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("Connection string 'DefaultConnection' не найден");
 
@@ -178,78 +126,39 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     }
 });
 
-// =======================
-//         Redis
-// =======================
+// ====== Redis ======
 builder.Services.AddStackExchangeRedisCache(options =>
 {
     options.Configuration = configuration["Redis:ConnectionString"] ?? "localhost:6379";
     options.InstanceName = "YessBackend:";
 });
 
-// =======================
-//   Base services
-// =======================
+// ====== App Services ======
 builder.Services.AddHttpClient();
 builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructureServices(configuration);
 builder.Services.AddYessBackendServices();
-
-// Background worker
-builder.Services.AddHostedService<YessBackend.Infrastructure.Services.ReconciliationBackgroundService>();
+builder.Services.AddHostedService<ReconciliationBackgroundService>();
 
 var app = builder.Build();
 
-// =======================
-//   AUTO APPLY MIGRATIONS
-// =======================
+// ====== Apply Migrations ======
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     db.Database.Migrate();
 }
 
-// =======================
-//   HTTPS Redirection
-// =======================
-var httpsLogger = app.Services.GetRequiredService<ILogger<Program>>();
-
-if (httpsAvailable)
+// =============================================
+//  🚫 HTTPS REDIRECTION — ОТКЛЮЧЕНО В PROD
+//  nginx уже занимается HTTPS
+// =============================================
+if (app.Environment.IsDevelopment())
 {
     app.UseHttpsRedirection();
-    
-    if (!app.Environment.IsDevelopment())
-    {
-        app.UseHsts();
-        httpsLogger.LogInformation("HTTPS Redirection и HSTS включены");
-    }
-    else
-    {
-        httpsLogger.LogInformation("HTTPS Redirection включён для Development");
-    }
-}
-else
-{
-    httpsLogger.LogWarning("HTTPS недоступен, редирект отключен");
-    
-    // Логируем причину для Production
-    if (!app.Environment.IsDevelopment())
-    {
-        var certPath = configuration["Kestrel:Certificates:Default:Path"];
-        if (string.IsNullOrWhiteSpace(certPath))
-        {
-            httpsLogger.LogWarning("Путь к сертификату не указан в конфигурации");
-        }
-        else if (!File.Exists(certPath))
-        {
-            httpsLogger.LogWarning($"Сертификат не найден по пути: {certPath}");
-        }
-    }
 }
 
-// =======================
-//        Swagger UI
-// =======================
+// ====== Swagger UI ======
 if (app.Environment.IsDevelopment() || configuration.GetValue<bool>("EnableSwagger", false))
 {
     app.UseSwagger();
@@ -260,18 +169,14 @@ if (app.Environment.IsDevelopment() || configuration.GetValue<bool>("EnableSwagg
     });
 }
 
-// =======================
-//  Middleware pipeline
-// =======================
+// ====== Middleware ======
 app.UseGlobalExceptionHandler();
 app.UseRateLimiting(configuration);
 app.UseCors("AllowCors");
 app.UseAuthentication();
 app.UseAuthorization();
 
-// =======================
-//        Endpoints
-// =======================
+// ====== Endpoints ======
 app.MapGet("/", () => new
 {
     status = "ok",

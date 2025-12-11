@@ -76,8 +76,8 @@ services:
       # ======== HTTPS Certificate ========
       # Для включения HTTPS создайте сертификат в ./certs/yess-cert.pfx
       # Приложение автоматически включит HTTPS, если сертификат доступен
-      ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PATH: /etc/ssl/certs/yess-cert.pfx
-      ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PASSWORD: YesSGo!@#!
+      ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PATH: "/etc/ssl/certs/yess-cert.pfx"
+      ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PASSWORD: "NewStrongPassword123"
 
       # ======== FINIK CONFIG ========
       FINIK_API_KEY: fNijGemPQLGMP7QyPfvI2dtoDCUYIzJ4s59hS9wa
