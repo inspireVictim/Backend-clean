@@ -169,6 +169,24 @@ if (app.Environment.IsDevelopment() || configuration.GetValue<bool>("EnableSwagg
     });
 }
 
+// ====== Static Files ======
+// Раздача файлов из папки uploads
+var uploadsPath = Path.Combine(Directory.GetCurrentDirectory(), "uploads");
+if (!Directory.Exists(uploadsPath))
+    Directory.CreateDirectory(uploadsPath);
+
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(uploadsPath),
+    RequestPath = "/uploads",
+    ServeUnknownFileTypes = true, // Для поддержки всех типов файлов (изображения, PDF и т.д.)
+    OnPrepareResponse = ctx =>
+    {
+        // Кэш на 1 час для статических файлов
+        ctx.Context.Response.Headers.Append("Cache-Control", "public,max-age=3600");
+    }
+});
+
 // ====== Middleware ======
 app.UseGlobalExceptionHandler();
 app.UseRateLimiting(configuration);
