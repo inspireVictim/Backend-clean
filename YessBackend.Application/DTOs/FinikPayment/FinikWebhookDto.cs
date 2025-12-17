@@ -39,4 +39,14 @@ public class FinikWebhookDto
 
     [JsonPropertyName("receiptNumber")]
     public string ReceiptNumber { get; set; } = string.Empty;
+
+    // Дополнительные поля от Django Payment Service
+    [JsonPropertyName("userId")]
+    public string? UserId { get; set; }
+
+    [JsonPropertyName("paymentId")]
+    public string? PaymentId { get; set; }
+
+    [JsonPropertyName("currency")]
+    public string? Currency { get; set; } // "Yescoin" для пополнения YescoinBalance
 }

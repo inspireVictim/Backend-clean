@@ -49,8 +49,9 @@ public class FinikPaymentService : IFinikPaymentService
                 name_en = _config.QrName,
                 webhookUrl = _config.WebhookUrl,
                 description = request.Description,
-                startDate = startTs,
-                endDate = endTs
+                paymentId = paymentId
+                //startDate = startTs,
+                //endDate = endTs
             }
         };
 

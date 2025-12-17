@@ -257,6 +257,118 @@ public class WalletService : IWalletService
         return new { success = false, message = "Invalid payment" };
     }
 
+    /// <summary>
+    /// Пополнение YescoinBalance через Finik платеж
+    /// Использует транзакции БД для ACID, проверяет идемпотентность, логирует все этапы
+    /// </summary>
+    public async Task<(bool Success, string Message, Transaction? Transaction)> TopUpYescoinBalanceAsync(
+        string userId,
+        decimal amount,
+        string paymentId,
+        string? transactionId = null)
+    {
+        _logger.LogInformation(
+            "TopUpYescoinBalanceAsync started: UserId={UserId}, Amount={Amount}, PaymentId={PaymentId}, TransactionId={TransactionId}",
+            userId, amount, paymentId, transactionId);
+
+        // Преобразуем userId из string в int
+        if (!int.TryParse(userId, out int userIdInt))
+        {
+            _logger.LogError("Invalid userId format: {UserId}", userId);
+            return (false, $"Invalid userId format: {userId}", null);
+        }
+
+        // Используем транзакцию БД для обеспечения ACID
+        using var dbTransaction = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            // Проверка идемпотентности: ищем транзакцию с таким же GatewayTransactionId (paymentId)
+            var existingTransaction = await _context.Transactions
+                .FirstOrDefaultAsync(t => 
+                    t.GatewayTransactionId == paymentId && 
+                    t.Type == "topup" && 
+                    t.Status == "completed");
+
+            if (existingTransaction != null)
+            {
+                _logger.LogWarning(
+                    "Payment already processed (idempotency check): PaymentId={PaymentId}, TransactionId={TransactionId}, UserId={UserId}",
+                    paymentId, existingTransaction.Id, userIdInt);
+                
+                await dbTransaction.CommitAsync();
+                return (true, "Payment already processed (idempotent)", existingTransaction);
+            }
+
+            // Получаем или создаем кошелек
+            var wallet = await GetWalletByUserIdAsync(userIdInt);
+            if (wallet == null)
+            {
+                _logger.LogInformation("Wallet not found, creating new wallet for UserId={UserId}", userIdInt);
+                wallet = new Wallet
+                {
+                    UserId = userIdInt,
+                    Balance = 0.0m,
+                    YescoinBalance = 0.0m,
+                    TotalEarned = 0.0m,
+                    TotalSpent = 0.0m,
+                    LastUpdated = DateTime.UtcNow
+                };
+                _context.Wallets.Add(wallet);
+                await _context.SaveChangesAsync();
+                _logger.LogInformation("New wallet created for UserId={UserId}", userIdInt);
+            }
+
+            var balanceBefore = wallet.YescoinBalance;
+            var balanceAfter = balanceBefore + amount;
+
+            _logger.LogInformation(
+                "Updating YescoinBalance: UserId={UserId}, BalanceBefore={BalanceBefore}, Amount={Amount}, BalanceAfter={BalanceAfter}",
+                userIdInt, balanceBefore, amount, balanceAfter);
+
+            // Обновляем YescoinBalance
+            wallet.YescoinBalance = balanceAfter;
+            wallet.TotalEarned += amount;
+            wallet.LastUpdated = DateTime.UtcNow;
+
+            // Создаем запись в Transactions для истории
+            var transaction = new Transaction
+            {
+                UserId = userIdInt,
+                Type = "topup",
+                Amount = amount,
+                Status = "completed",
+                PaymentMethod = "Finik",
+                GatewayTransactionId = paymentId,
+                BalanceBefore = balanceBefore,
+                BalanceAfter = balanceAfter,
+                Description = $"Пополнение Yescoin через Finik. PaymentId: {paymentId}",
+                CreatedAt = DateTime.UtcNow,
+                CompletedAt = DateTime.UtcNow,
+                ProcessedAt = DateTime.UtcNow
+            };
+
+            _context.Transactions.Add(transaction);
+            await _context.SaveChangesAsync();
+
+            // Коммитим транзакцию БД
+            await dbTransaction.CommitAsync();
+
+            _logger.LogInformation(
+                "YescoinBalance updated successfully: UserId={UserId}, TransactionId={TransactionId}, Amount={Amount}, NewBalance={NewBalance}",
+                userIdInt, transaction.Id, amount, balanceAfter);
+
+            return (true, "YescoinBalance updated successfully", transaction);
+        }
+        catch (Exception ex)
+        {
+            await dbTransaction.RollbackAsync();
+            _logger.LogError(ex,
+                "Error updating YescoinBalance: UserId={UserId}, PaymentId={PaymentId}, Amount={Amount}",
+                userIdInt, paymentId, amount);
+            return (false, $"Error updating YescoinBalance: {ex.Message}", null);
+        }
+    }
+
     private string GenerateQRCodeData(string paymentUrl)
     {
         // TODO: Реализовать генерацию QR кода через QRCoder

@@ -16,6 +16,7 @@ public class FinikSignatureService : IFinikSignatureService
     {
         var sb = new StringBuilder();
 
+
         // 1) Метод
         sb.Append(httpMethod.ToLowerInvariant()).Append('\n');
 
