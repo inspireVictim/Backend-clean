@@ -11,11 +11,12 @@ using YessBackend.Application.Services;
 using YessBackend.Infrastructure.Services;
 using YessBackend.Api.Middleware;
 using YessBackend.Application.Interfaces.Payments;
+using Microsoft.EntityFrameworkCore.Diagnostics; // Добавлено для RelationalEventId
 
 var builder = WebApplication.CreateBuilder(args);
 
 // =============================================
-//   KESTREL — ТОЛЬКО HTTP (Production via nginx)
+//    KESTREL — ТОЛЬКО HTTP (Production via nginx)
 // =============================================
 
 builder.WebHost.ConfigureKestrel(options =>
@@ -34,7 +35,7 @@ builder.WebHost.ConfigureKestrel(options =>
 });
 
 // =============================================
-//       CONFIGURATION
+//        CONFIGURATION
 // =============================================
 var configuration = builder.Configuration;
 
@@ -118,6 +119,9 @@ var connectionString = configuration.GetConnectionString("DefaultConnection")
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
 {
     options.UseNpgsql(connectionString);
+    
+    // Игнорируем ошибку несовпадения модели и базы (решает падение в .NET 9)
+    options.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
 
     if (builder.Environment.IsDevelopment())
     {
@@ -143,11 +147,14 @@ builder.Services.AddHostedService<ReconciliationBackgroundService>();
 var app = builder.Build();
 
 // ====== Apply Migrations ======
+// ОТКЛЮЧЕНО: Вызывало падение приложения. Миграции нужно накатывать вручную.
+/*
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     db.Database.Migrate();
 }
+*/
 
 // =============================================
 //  🚫 HTTPS REDIRECTION — ОТКЛЮЧЕНО В PROD

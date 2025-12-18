@@ -9,9 +9,7 @@ server {
         root /usr/share/nginx/html;
     }
 
-    location / {
-        return 301 https://$host$request_uri;
-    }
+    return 301 https://$host$request_uri;
 }
 
 ###############################
@@ -26,9 +24,6 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/yessgo.org/privkey.pem;
 
     location / {
-        # ВАЖНО: DNS-резолвер Docker. Без него будет ошибка "no resolver defined"
-        resolver 127.0.0.11 valid=30s;
-
         # Фикс CORS для платежей
         if ($request_method = 'OPTIONS') {
             add_header 'Access-Control-Allow-Origin' 'https://app.yessgo.org' always;
@@ -37,11 +32,13 @@ server {
             return 204;
         }
         add_header 'Access-Control-Allow-Origin' 'https://app.yessgo.org' always;
+	
 
         # Проксирование на Django
+        # Используем переменную, чтобы Nginx не падал при запуске, если контейнер еще не готов
         set $upstream_payment http://payment-service:8000;
         proxy_pass $upstream_payment;
-
+        
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -66,10 +63,10 @@ server {
         rewrite ^/api/v1/api/v1/(.*)$ /api/v1/$1 break;
 
         proxy_pass http://csharp-backend:5000;
-
+        
         add_header 'Access-Control-Allow-Origin' '*' always;
         add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS, PUT, DELETE' always;
-        add_header 'Access-Control-Allow-Headers' 'Authorization,Content-Type,Accept,Origin,X-Requested-With' always;
+        add_header 'Access-Control-Allow-Headers' 'Authorization,Content-Type,Accept,Origin' always;
 
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -80,7 +77,7 @@ server {
 }
 
 ###############################
-# 4. FRONTEND APPS
+# 4. FRONTEND APPS (app, admin, partner, landing)
 ###############################
 
 # Основное приложение
@@ -89,13 +86,8 @@ server {
     server_name app.yessgo.org;
     ssl_certificate /etc/letsencrypt/live/yessgo.org/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/yessgo.org/privkey.pem;
-    
     root /var/www/web-version-YES-GO/dist;
-    index index.html;
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
+    location / { try_files $uri $uri/ /index.html; }
 }
 
 # Админка
