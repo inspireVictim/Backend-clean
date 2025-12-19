@@ -35,10 +35,8 @@ public class WalletService : IWalletService
 
     public async Task<List<Transaction>> GetUserTransactionsAsync(int userId, int limit = 50, int offset = 0)
     {
-        var wallet = await GetWalletByUserIdAsync(userId);
-        if (wallet == null) return new List<Transaction>();
-
         return await _context.Transactions
+            .Where(t => t.UserId == userId)
             .OrderByDescending(t => t.CreatedAt)
             .Skip(offset)
             .Take(limit)
@@ -47,10 +45,8 @@ public class WalletService : IWalletService
 
     public async Task<List<Transaction>> GetTransactionHistoryAsync(int userId)
     {
-        var wallet = await GetWalletByUserIdAsync(userId);
-        if (wallet == null) return new List<Transaction>();
-
         return await _context.Transactions
+            .Where(t => t.UserId == userId)
             .OrderByDescending(t => t.CreatedAt)
             .ToListAsync();
     }
@@ -58,16 +54,16 @@ public class WalletService : IWalletService
     public async Task<Transaction> CreateTransactionAsync(
         int userId, string type, decimal amount, int? partnerId = null, int? orderId = null, string? description = null)
     {
-        var wallet = await GetWalletByUserIdAsync(userId);
-        if (wallet == null) throw new Exception("Wallet not found");
-
         var transaction = new Transaction
         {
+            UserId = userId,
             Type = type,
             Amount = amount,
             Description = description,
             CreatedAt = DateTime.UtcNow,
-            Status = "SUCCESS"
+            Status = "SUCCESS",
+            PartnerId = partnerId
+            // OrderId убран, так как его нет в модели Transaction
         };
 
         _context.Transactions.Add(transaction);
@@ -83,9 +79,9 @@ public class WalletService : IWalletService
         wallet.LastUpdated = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
-        return new WalletSyncResponseDto 
-        { 
-            YescoinBalance = wallet.YescoinBalance 
+        return new WalletSyncResponseDto
+        {
+            YescoinBalance = wallet.YescoinBalance
         };
     }
 
@@ -111,13 +107,13 @@ public class WalletService : IWalletService
         string userId, decimal amount, string paymentId, string? transactionId = null)
     {
         if (!int.TryParse(userId, out int uId)) return (false, "Invalid User ID", null);
-        
+
         var wallet = await GetWalletByUserIdAsync(uId);
         if (wallet == null) return (false, "Wallet not found", null);
 
         wallet.YescoinBalance += amount;
         var trans = await CreateTransactionAsync(uId, "TOPUP", amount, null, null, $"Finik: {paymentId}");
-        
+
         return (true, "Success", trans);
     }
 
@@ -129,7 +125,17 @@ public class WalletService : IWalletService
         try
         {
             var wallet = await _context.Wallets.FirstOrDefaultAsync(w => w.UserId == userId);
-            if (wallet == null || wallet.YescoinBalance < amount) return false;
+            if (wallet == null)
+            {
+                _logger.LogWarning("SpendYescoins: Wallet not found for user {UserId}", userId);
+                return false;
+            }
+
+            if (wallet.YescoinBalance < amount)
+            {
+                _logger.LogWarning("SpendYescoins: Insufficient balance for user {UserId}. Has: {Balance}, Need: {Amount}", userId, wallet.YescoinBalance, amount);
+                return false;
+            }
 
             wallet.YescoinBalance -= amount;
             wallet.TotalSpent += amount;
@@ -137,6 +143,8 @@ public class WalletService : IWalletService
 
             var transRecord = new Transaction
             {
+                UserId = userId,
+                PartnerId = partnerId,
                 Amount = -amount,
                 Type = "QR_SPEND",
                 CreatedAt = DateTime.UtcNow,
@@ -145,14 +153,17 @@ public class WalletService : IWalletService
             };
 
             _context.Transactions.Add(transRecord);
+            
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
+            
+            _logger.LogInformation("Successfully spent {Amount} Yescoins for user {UserId}", amount, userId);
             return true;
         }
         catch (Exception ex)
         {
-            try { await transaction.RollbackAsync(); } catch { /* Ignore rollback errors */ }
-            _logger.LogError(ex, "Error during QR spend for user {UserId}", userId);
+            try { await transaction.RollbackAsync(); } catch { }
+            _logger.LogError(ex, "FATAL ERROR during QR spend for user {UserId}: {Message}", userId, ex.Message);
             return false;
         }
     }

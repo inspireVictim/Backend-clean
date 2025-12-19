@@ -45,7 +45,7 @@ public class PartnerAuthController : ControllerBase
         {
             // Определяем, это телефон или email
             var isEmail = request.Username.Contains("@");
-            
+
             Domain.Entities.User? user;
             if (isEmail)
             {
@@ -166,22 +166,21 @@ public class PartnerAuthController : ControllerBase
             var user = new Domain.Entities.User
             {
                 Phone = request.Phone,
-                Email = request.Email ?? string.Empty, // Если email не указан, используем пустую строку
+                Email = request.Email ?? string.Empty,
                 PasswordHash = passwordHash,
-                FirstName = request.Name, // Используем название партнера как имя
-                LastName = "", // Можно оставить пустым или добавить отдельное поле
+                FirstName = request.Name,
+                LastName = "",
                 CityId = request.CityId,
                 IsActive = true,
-                PhoneVerified = false, // Партнер должен будет верифицировать телефон позже
-                EmailVerified = !string.IsNullOrWhiteSpace(request.Email), // Если email указан, считаем верифицированным
+                PhoneVerified = false,
+                EmailVerified = !string.IsNullOrWhiteSpace(request.Email),
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
 
             _context.Users.Add(user);
-            await _context.SaveChangesAsync(); // Сохраняем пользователя, чтобы получить его ID
+            await _context.SaveChangesAsync();
 
-            // Создаем словарь для социальных сетей (для хранения ссылки на 2GIS)
             var socialMedia = new Dictionary<string, string>
             {
                 { "2gis", request.TwoGisUrl }
@@ -200,20 +199,20 @@ public class PartnerAuthController : ControllerBase
                 CoverImageUrl = request.CoverImageUrl,
                 CityId = request.CityId,
                 MaxDiscountPercent = request.MaxDiscountPercent,
-                CashbackRate = request.CashbackRate ?? 5.0m, // По умолчанию 5%
+                CashbackRate = request.CashbackRate ?? 5.0m,
                 DefaultCashbackRate = request.CashbackRate ?? 5.0m,
-                OwnerId = user.Id, // Связываем партнера с пользователем
-                SocialMedia = socialMedia, // Сохраняем ссылку на 2GIS
-                IsActive = false, // Партнер неактивен до верификации администратором
+                OwnerId = user.Id,
+                SocialMedia = socialMedia,
+                IsActive = false,
                 IsVerified = false,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
 
             _context.Partners.Add(partner);
-            await _context.SaveChangesAsync(); // Сохраняем партнера, чтобы получить его ID
+            await _context.SaveChangesAsync();
 
-            // Создаем локацию партнера с адресом
+            // Создаем локацию партнера
             var partnerLocation = new Domain.Entities.PartnerLocation
             {
                 PartnerId = partner.Id,
@@ -223,9 +222,9 @@ public class PartnerAuthController : ControllerBase
             };
 
             _context.PartnerLocations.Add(partnerLocation);
-            await _context.SaveChangesAsync(); // Сохраняем локацию
+            await _context.SaveChangesAsync();
 
-            // Создаем кошелек для пользователя (если его еще нет)
+            // Создаем кошелек для пользователя
             var existingWallet = await _context.Wallets
                 .FirstOrDefaultAsync(w => w.UserId == user.Id);
 
@@ -237,9 +236,8 @@ public class PartnerAuthController : ControllerBase
                     Balance = 0,
                     YescoinBalance = 0,
                     TotalEarned = 0,
-                    TotalSpent = 0,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
+                    TotalSpent = 0
+                    // Удалены CreatedAt и UpdatedAt, вызывавшие ошибку
                 };
 
                 _context.Wallets.Add(wallet);
@@ -280,4 +278,3 @@ public class PartnerAuthController : ControllerBase
         }
     }
 }
-
