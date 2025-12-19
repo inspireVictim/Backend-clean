@@ -54,7 +54,7 @@ public class PartnerRegisterRequestDto
     [Required(ErrorMessage = "Адрес обязателен")]
     public string Address { get; set; } = string.Empty;
 
-    [JsonPropertyName("2gis_url")]
+    [JsonPropertyName("two_gis_url")]
     [Required(ErrorMessage = "Ссылка на 2GIS обязательна")]
     [Url(ErrorMessage = "Неверный формат URL для ссылки на 2GIS")]
     public string TwoGisUrl { get; set; } = string.Empty;
