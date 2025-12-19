@@ -70,6 +70,7 @@ builder.Services.AddAuthentication(options =>
         ClockSkew = TimeSpan.Zero
     };
 });
+/*анел*/
 
 builder.Services.AddAuthorization();
 builder.Services.AddEndpointsApiExplorer();
