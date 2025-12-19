@@ -18,7 +18,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Конфигурация
 var configuration = builder.Configuration;
 
-// ПРИОРИТЕТ ДЛЯ JWT ИЗ DOCKER (Фикс ошибки 401)
+// ПРИОРИТЕТ ДЛЯ JWT ИЗ DOCKER
 var jwtSecret = configuration["Jwt:SecretKey"] ?? throw new Exception("JWT SecretKey missing in config");
 var jwtIssuer = configuration["Jwt:Issuer"] ?? "YessBackend";
 var jwtAudience = configuration["Jwt:Audience"] ?? "YessUsers";
@@ -32,6 +32,10 @@ builder.WebHost.ConfigureKestrel(options =>
 builder.Services.Configure<FinikPaymentConfig>(configuration.GetSection("FinikPayment"));
 builder.Services.AddScoped<IFinikSignatureService, FinikSignatureService>();
 builder.Services.AddHttpClient<IFinikPaymentService, FinikPaymentService>();
+
+// ====== WEBHOOKS & ADDITIONAL SERVICES (Фикс ошибки 500) ======
+builder.Services.AddScoped<IWebhookService, WebhookService>();
+builder.Services.AddScoped<IOptimaPaymentService, OptimaPaymentService>();
 
 // ====== Controllers ======
 builder.Services.AddControllers()
@@ -48,7 +52,7 @@ builder.Services.AddCors(options =>
     });
 });
 
-// ====== JWT AUTHENTICATION (Синхронизировано с Docker) ======
+// ====== JWT AUTHENTICATION ======
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;

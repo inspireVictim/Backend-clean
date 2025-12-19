@@ -14,12 +14,12 @@ public class FinikPaymentService : IFinikPaymentService
 {
     private readonly ApplicationDbContext _context;
     private readonly ILogger<FinikPaymentService> _logger;
-    private readonly HttpClient _httpClient; // Возвращаем поле
+    private readonly HttpClient _httpClient;
 
     public FinikPaymentService(
-        ApplicationDbContext context, 
+        ApplicationDbContext context,
         ILogger<FinikPaymentService> logger,
-        HttpClient httpClient) // Возвращаем параметр в конструктор
+        HttpClient httpClient)
     {
         _context = context;
         _logger = logger;
@@ -28,19 +28,32 @@ public class FinikPaymentService : IFinikPaymentService
 
     public async Task<bool> ProcessWebhookAsync(FinikWebhookDto dto)
     {
-        if (string.IsNullOrEmpty(dto.TransactionId)) return false;
+        // Берем ID платежа из того поля, которое заполнено (78 или UUID)
+        var searchId = !string.IsNullOrEmpty(dto.PaymentId) ? dto.PaymentId : dto.TransactionId;
 
-        _logger.LogInformation(">>> START FINIK WEBHOOK: {Id}", dto.TransactionId);
+        if (string.IsNullOrEmpty(searchId)) return false;
 
-        try 
+        _logger.LogInformation(">>> START FINIK WEBHOOK FOR ID: {Id}", searchId);
+
+        try
         {
             using var command = _context.Database.GetDbConnection().CreateCommand();
-            command.CommandText = "SELECT user_id, amount FROM payments_payment WHERE payment_id = @id::uuid";
-            
-            var parameter = command.CreateParameter();
-            parameter.ParameterName = "@id";
-            parameter.Value = dto.TransactionId;
-            command.Parameters.Add(parameter);
+
+            // Ищем по колонке 'id' (число), так как в базе Django это первичный ключ
+            if (int.TryParse(searchId, out int numericId)) {
+                command.CommandText = "SELECT user_id, amount FROM payments_payment WHERE id = @id";
+                var parameter = command.CreateParameter();
+                parameter.ParameterName = "@id";
+                parameter.Value = numericId;
+                command.Parameters.Add(parameter);
+            } else {
+                // Если пришел UUID
+                command.CommandText = "SELECT user_id, amount FROM payments_payment WHERE payment_id = @id::uuid";
+                var parameter = command.CreateParameter();
+                parameter.ParameterName = "@id";
+                parameter.Value = searchId;
+                command.Parameters.Add(parameter);
+            }
 
             if (command.Connection.State != ConnectionState.Open)
                 await command.Connection.OpenAsync();
@@ -55,31 +68,45 @@ public class FinikPaymentService : IFinikPaymentService
                     userIdStr = reader.GetValue(0).ToString();
                     originalAmount = reader.GetDecimal(1);
                 }
-                else 
+                else
                 {
-                    _logger.LogError("!!! Payment {Id} not found in database", dto.TransactionId);
+                    _logger.LogError("!!! Payment {Id} not found in database", searchId);
                     return false;
                 }
             }
 
             if (!int.TryParse(userIdStr, out int userId)) return false;
 
-            // ЛОГИКА X2
+            // ЛОГИКА X2: рассчитываем бонусы
             decimal yescoinBonus = originalAmount * 2;
-            _logger.LogInformation("Converted {Som} SOM to {Coin} YessCoins for User {User}", originalAmount, yescoinBonus, userId);
+            _logger.LogInformation("SUCCESS: Processing User {User}. Adding {Som} SOM and {Coin} YessCoins", userId, originalAmount, yescoinBonus);
 
             using var transaction = await _context.Database.BeginTransactionAsync();
-            
-            // Используем кавычки и COALESCE на случай, если в базе NULL
-            var updateWalletSql = "UPDATE wallets SET \"YescoinBalance\" = COALESCE(\"YescoinBalance\", 0) + {0}, \"LastUpdated\" = {1} WHERE \"UserId\" = {2}";
-            int walletRows = await _context.Database.ExecuteSqlRawAsync(updateWalletSql, yescoinBonus, DateTime.UtcNow, userId);
 
-            var updatePaymentSql = "UPDATE payments_payment SET status = 'SUCCESS' WHERE payment_id = {0}::uuid";
-            await _context.Database.ExecuteSqlRawAsync(updatePaymentSql, dto.TransactionId);
+            // ОБНОВЛЕНИЕ КОШЕЛЬКА: Пополняем основной баланс, бонусы и статистику
+            var updateWalletSql = @"
+                UPDATE wallets 
+                SET ""Balance"" = COALESCE(""Balance"", 0) + {0}, 
+                    ""YescoinBalance"" = COALESCE(""YescoinBalance"", 0) + {1}, 
+                    ""TotalEarned"" = COALESCE(""TotalEarned"", 0) + {0},
+                    ""LastUpdated"" = {2} 
+                WHERE ""UserId"" = {3}";
+
+            int walletRows = await _context.Database.ExecuteSqlRawAsync(updateWalletSql, originalAmount, yescoinBonus, DateTime.UtcNow, userId);
+
+            // ОБНОВЛЕНИЕ ПЛАТЕЖА: Меняем статус на SUCCESS
+            string updatePaymentSql;
+            if (int.TryParse(searchId, out int nId)) {
+                updatePaymentSql = "UPDATE payments_payment SET status = 'SUCCESS' WHERE id = {0}";
+                await _context.Database.ExecuteSqlRawAsync(updatePaymentSql, nId);
+            } else {
+                updatePaymentSql = "UPDATE payments_payment SET status = 'SUCCESS' WHERE payment_id = {0}::uuid";
+                await _context.Database.ExecuteSqlRawAsync(updatePaymentSql, searchId);
+            }
 
             await transaction.CommitAsync();
-            
-            _logger.LogInformation(">>> FINISHED: Rows affected: {Count}. User {User} now has more YessCoins.", walletRows, userId);
+
+            _logger.LogInformation(">>> FINISHED: Balance and Bonuses updated for User {User}. Rows affected: {Count}", userId, walletRows);
             return true;
         }
         catch (Exception ex)
@@ -89,6 +116,7 @@ public class FinikPaymentService : IFinikPaymentService
         }
     }
 
-    public Task<FinikCreatePaymentResponseDto> CreatePaymentAsync(FinikCreatePaymentRequestDto dto) 
+    public Task<FinikCreatePaymentResponseDto> CreatePaymentAsync(FinikCreatePaymentRequestDto dto)
         => Task.FromResult(new FinikCreatePaymentResponseDto());
 }
+
