@@ -28,7 +28,6 @@ services:
     networks:
       - yess-network
 
-  # НОВЫЙ СЕРВИС: Django Payment
   payment-service:
     build:
       context: ./MSFinik
@@ -41,10 +40,16 @@ services:
     environment:
       - DATABASE_URL=postgres://yess_user:secure_password@postgres:5432/yess_db
       - REDIS_URL=redis://redis:6379/0
-      # Если вашему Django нужны дополнительные переменные, добавьте их ниже
       - PYTHONUNBUFFERED=1
+      # Настройки Finik из документации
+      - FINIK_HOST=api.acquiring.averspay.kg
+      - FINIK_API_KEY=1BGB5CgJI51irrPUkL9189iY7Yk6zqjJ9n1pj6Ft
+      - FINIK_ACCOUNT_ID=cc5a3231-2eec-4db2-9170-8b0cc3abeed3
+      - FINIK_MCC=0742
+      - FINIK_PRIVATE_PEM=-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCx2YOhtQ6kcaQc\n86zeZ7SkUE0hSYeCiOk1oEmhOZ2GGYpaH/KczD9H8Vd0BUVsMwh87G9fNNtiowNj\nxl+QNkj4OICstdwu1CTM9CM6j7RvRZIX8wMkx/y8vfOFIdRekLca8Kx7qfvJf3Z2\nXQH43Oa7nlFW/5vCIoHWrvj9yByWRhRT93F8ChvsB2eIH/d/RqJBxc+/u9MDCaFM\nJScybpFABnWx2qv/L5Ky88ytqKQEcNcVvRN2gFe6fZlyIV48QnVMCtUsJGOvdBAx\nwTqzSMqmoemxDSuv/IFzdyGIFyfTC1wUgpxKagwS4+9jIE1CGQoX7hF0Ngp/tCgt\nVf48dyK5AgMBAAECggEAQbH/6i1X5c2mmh0254a2VxXkj9255TGOt8ToPdprAjyP\n+x+e/mWCIKCZNd22mbO2OHMb5ra/LU3a9DG0XjB3Pt2cRm/9D/1ERMMP+lNYCtxP\njXIyYJVRGiUufaiT6oSZZqWtiRauz+06BJnxnwx2XKqsEC9mSU122acTiacwTB+k\nPzM5sf13mEZds2YT5dzH8a3VEfywBvfvHfsFpqsNYE6AJOOi9rQWNujOt659cKA9\nV2NgCcKzDasrwEzYjFkwOt6+sXVSOQ3tCxYU9AS2ACv/Ga4AZ0Y/OeGnplAsuBLf\nmGSK9O0fRmkgMJO3ImRlyMzkHvBt2y+khEqMHQ4oMwKBgQDX6H1JTdCX2eqULDs+\nbENTqEeT+PrWwnl65UepwTTDGjcjQ9KNiyM8+VhuptAKIplnYt/Jr8C5RXCHCJsi\nOMZJ0krnqSx1c646IFTvrzZEzE/wiblY9xIWWN9tQIcmXmxm9oORdbwXFV+Enlsd\nBr8t7nto/OPwnCj76IDc9x5Y6wKBgQDS39vAvFEHL2Or9wyaR/WDpgK/uwoe2e4G\n4RZVXJ5gXJP6C/wIlL6zavOJ4sX02cVlZGcD4CF8Q9gahfxC6AUQpujfaySvv5H5\n8r6EV0CB1evOqCzLxDfz6fnpe0/pV6Z5cS0Y3oCvJLa7G8fckXS6jD23V2Jgvnqf\nCFa27KHJ6wKBgEvpH/Of+lEJeyJxkrrV0a4eIlxyU68iXRfKeTHEDkrycqRheivt\n2Yvcly0AVXDazVi+OLRuqLH7Kh8v9WtIzt6xo0hkAI+jBoTFTVegINJ7izelFJek\n9qUIxjVhVKM226Iv1f5UiLcM+rJkAuDnuFvr11QIZhP4s6guDPCjqfXVAoGAErUV\nU7XhIlgL6ZeTIKS9nR4/JC89qJsAyM9zIcODsVzFK+ugQkqf2F7mmBbsJNqk7mfH\n08owbku+givcwzq+KEoGYruol4bRNnFYgXkUGfCWaND2mGUh6ZuaNiJgZn0GIcPu\nkkQ6+k6xf0vpoSGuT1Zdq0QvUBHV4wHkX3oCqF0CgYEAvJ/L6YLVLDJhg/Awksrs\nxNej1B5LNJthSqGzhnBjNGle65IWF+5E66Isl5reT7LBBbe+Hp7k7mActw1woZDI\nkqj0XrPEZDSm1xvp5hkOiobU/B1u6QSmj0ewnu6CxTOYib/mMYRQIoZ1fE3k8tD3\n05IaB60C6vZRLu+n9ylmXMw=\n-----END PRIVATE KEY-----
     networks:
       - yess-network
+
 
   csharp-backend:
     build:
@@ -59,54 +64,17 @@ services:
         condition: service_started
     ports:
       - "8000:5000"
-      - "8443:5001"
     environment:
-      ASPNETCORE_URLS: http://0.0.0.0:5000
-      ASPNETCORE_ENVIRONMENT: Production
-      EnableSwagger: "true"
-      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=yess_db;Username=yess_user;Password=secure_password
-      Redis__ConnectionString: redis:6379
-      Jwt__SecretKey: your_secret_key_here_change_in_production
-      Jwt__Issuer: YessBackend
-      Jwt__Audience: YessUsers
-      Cors__Origins: '["http://localhost:3000","https://yessgo.org","https://app.yessgo.org","https://admin.yessgo.org","https://partner.yessgo.org"]'
-      ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PATH: "/etc/ssl/certs/yess-cert.pfx"
-      ASPNETCORE_KESTREL__CERTIFICATES__DEFAULT__PASSWORD: "NewStrongPassword123"
-      FINIK_API_KEY: fNijGemPQLGMP7QyPfvI2dtoDCUYIzJ4s59hS9wa
-      FINIK_ACCOUNT_ID: 54f8eb72-348b-4c4c-85d1-a02d1a37dc78
-      FINIK_MERCHANT_MCC: "0742"
-      FINIK_PRIVATE_KEY: |
-        -----BEGIN PRIVATE KEY-----
-        MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7Xqa7KIJWn9gO
-        MWZBD7cRpDp1uYJuR04fu1+m3856KL3iJHMDbytbCtKehmvBEWcD2gLlHbrm3cYT
-        CCHuJow11+aURC8x27/ETIS0T02U4c8p1a0U6YADh8vBNUv08LQh/4D6lrtxULmE
-        qY1Y1jRD7nmKEApWCrqNr4IgAkaNHJ6cHBHnKExklBZYpsLbygiYip6TLDZ7gtti
-        QU5YzfqnbaVs0ZAz2MSsOwuJaAZ2+SqlfzIjxbeKD08qJJxCU29g7pqRUhuft9aF
-        yps/bqpddJhMA6a+S0IwveQ8Yzpb7ZPum6LyaIOF1TH6oouInirIWuXUqgae69Fz
-        MqmYpZGfAgMBAAECggEABR7LqNtX0WCHbVtrrf4Jj00iyWXM52ZB/5DFqpAnfkdz
-        TPNDfSJCUMYa4pVb63nQxOutF8yNk+76kXJ28naDi5o/T+lipzpRDd8P4uBteSgk
-        k6WX7VH7jPmXpcuDVwm7VuZI2frnTTMpJrOpBQT4oznvuY9PqBwruX1hESBOyyYG
-        1pL7O+FwslwjwwPR080+mIkPHco7rI9T2rzA2Bxs9R2Z5Q7962PX+DyaWCNsAXCc
-        wnzu2tHy+O6tDwNzkoE6ZjNphmYOETAocdFRNPmBiO9w58mejlqiWSRPvMhd1WJl
-        5KTNniO8JhlVEwtOaOjB46JnrBaVoLdZDEOGT8sh7QKBgQD4dfZ7LxDvWvyqR/Vw
-        SZGAB2YiJk6FEuJohY3jaUAjLLXuu0diSwI5/3jYZW808d2HyIqQYtULPYEkYmUk
-        yAnAg5ZNPOfV0wryI3rfH9occ/5QoBw+weWbLVA9bdErJ+vnTTDNDeZG7opyfqqZ
-        sYV7l+W+G2pSLWJ/rJySjU1z+wKBgQDBDiJ4soP2xo87topmybgtyHReWYjrBRNo
-        2tndf7IXZF7l34L4zMSfY8zstyG4AkCKx25mkEffg0fZZU66tMFrCIImz221SGgU
-        I0rhGHNPqVUby6g9k2tPMzQYYlld1Snjd2VyHqrOgpuevJA1JpJdOleR9C7zKOLP
-        hDIPXALDrQKBgQCCECZWN74yvjuT3BV0kV50WesyJ0FlUgxpULiE+jzT7PzUGv90
-        SfXBbKXTCc5cNdyUzvsSOFp0Bt9Kr6NozLqmJ3wPtLlb6p1JQh95G9Buop3XkOkY
-        RSIvyFm/vnQHll9cdsD8JrGMIiUhaINf71kD6PEgQnO2zwFH+pD/+q437wKBgCWF
-        28ld2Sxj138hsbDc0EGFzqhv+p7Dc8xTjTjyEuldBtzjHo/BLQ5V1YTE63baaTUQ
-        IjMpI+8bkyF8AVtkuptVIgbtFkO/+QrA+VLa776yCOrIIMEnIBpat2tt4jTMs8GU
-        eVE/CK/uztSBjf3mq1gXeOHTdjSo47y10w0NMzRZAoGAOBz5gFziJMg1+tpE3aw2
-        QDjDedVDYL7PPpB2zewUk+8QqzGnO/rXs2n/ogmofrA0dmIX+fzqeBohm0E77Wxw
-        +7f9IZkxblCUZPl3HrKKdCYtvjPyVHb89J3SoK9curSIk8EnRMgyzbCaz8FoDLYs
-        SPjCqEHGUm5yUAc8NtIsz5U=
-        -----END PRIVATE KEY-----
-    volumes:
-      - ./uploads:/app/uploads
-      - ./certs:/etc/ssl/certs:ro
+      - ASPNETCORE_URLS=http://0.0.0.0:5000
+      - ASPNETCORE_ENVIRONMENT=Production
+      - EnableSwagger=true
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=yess_db;Username=yess_user;Password=secure_password
+      - Redis__ConnectionString=redis:6379
+      - Jwt__SecretKey=YessLoyalty_Super_Secure_Secret_Key_2025_LongEnough
+      - Jwt__Issuer=YessBackend
+      - Jwt__Audience=YessUsers
+      - FINIK_ACCOUNT_ID=cc5a3231-2eec-4db2-9170-8b0cc3abeed3
+      - FINIK_API_KEY=fNijGemPQLGMP7QyPfvI2dtoDCUYIzJ4s59hS9wa
     networks:
       - yess-network
 

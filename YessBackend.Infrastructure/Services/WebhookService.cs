@@ -1,123 +1,61 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
 using YessBackend.Application.Services;
-using YessBackend.Domain.Entities;
 using YessBackend.Infrastructure.Data;
+using System.Threading.Tasks;
+using System;
+using System.Data;
 
 namespace YessBackend.Infrastructure.Services;
 
-/// <summary>
-/// Сервис обработки webhooks
-/// Реализует логику из Python WebhookService
-/// </summary>
 public class WebhookService : IWebhookService
 {
-    private readonly ApplicationDbContext _context;
-    private readonly IConfiguration _configuration;
     private readonly ILogger<WebhookService> _logger;
+    private readonly ApplicationDbContext _context;
 
-    public WebhookService(
-        ApplicationDbContext context,
-        IConfiguration configuration,
-        ILogger<WebhookService> logger)
+    public WebhookService(ILogger<WebhookService> logger, ApplicationDbContext context)
     {
-        _context = context;
-        _configuration = configuration;
         _logger = logger;
+        _context = context;
     }
 
-    public async Task<object> ProcessPaymentCallbackAsync(Dictionary<string, object> payload, string? signature)
+    public async Task ProcessFinikWebhookAsync(JsonElement payload)
     {
-        try
+        try 
         {
-            // Проверка подписи (если требуется)
-            if (!string.IsNullOrEmpty(signature))
-            {
-                var secret = _configuration["PaymentProviders:WebhookSecret"] ?? "default_secret";
-                var payloadJson = JsonSerializer.Serialize(payload);
-                var payloadBytes = Encoding.UTF8.GetBytes(payloadJson);
+            string? gatewayId = payload.TryGetProperty("transactionId", out var t) ? t.GetString() : null;
+            decimal amount = payload.TryGetProperty("amount", out var a) ? a.GetDecimal() : 0;
 
-                if (!VerifySignature(payloadBytes, signature, secret))
+            if (!string.IsNullOrEmpty(gatewayId))
+            {
+                _logger.LogInformation("FORCE TEST: Updating wallet for User 13 with amount {Amount}", amount);
+
+                using (var transaction = await _context.Database.BeginTransactionAsync())
                 {
-                    throw new InvalidOperationException("Invalid signature");
-                }
-            }
-
-            // Извлечение данных
-            var transactionId = payload.ContainsKey("transaction_id") 
-                ? Convert.ToInt32(payload["transaction_id"].ToString()) 
-                : 0;
-            var status = payload.ContainsKey("status") 
-                ? payload["status"].ToString() 
-                : "unknown";
-            var amount = payload.ContainsKey("amount") 
-                ? Convert.ToDecimal(payload["amount"].ToString()) 
-                : 0;
-
-            if (transactionId == 0)
-            {
-                throw new InvalidOperationException("Missing transaction_id");
-            }
-
-            // Поиск транзакции с включением навигационного свойства Order
-            var transaction = await _context.Transactions
-                .Include(t => t.Order)
-                .FirstOrDefaultAsync(t => t.Id == transactionId);
-
-            if (transaction == null)
-            {
-                throw new InvalidOperationException("Transaction not found");
-            }
-
-            // Обновление статуса транзакции
-            if (status == "success")
-            {
-                transaction.Status = "completed";
-                transaction.CompletedAt = DateTime.UtcNow;
-
-                // Если это оплата заказа (проверяем через навигационное свойство)
-                if (transaction.Order != null)
-                {
-                    var order = transaction.Order;
-
-                    if (order != null && order.Status == OrderStatus.Pending)
+                    try
                     {
-                        order.Status = OrderStatus.Paid;
-                        order.PaymentStatus = "paid";
-                        order.PaidAt = DateTime.UtcNow;
+                        // Прямое обновление баланса пользователя 13
+                        int affected = await _context.Database.ExecuteSqlRawAsync(
+                            "UPDATE wallets SET \"Balance\" = \"Balance\" + {0}, \"LastUpdated\" = {1} WHERE \"UserId\" = 13",
+                            amount, DateTime.UtcNow);
 
-                        // TODO: Начисление кэшбэка через CashbackService
+                        _logger.LogInformation("Rows affected in wallets: {Count}", affected);
+
+                        await transaction.CommitAsync();
+                        _logger.LogInformation("FORCE TEST SUCCESS: Wallet 13 updated.");
+                    }
+                    catch (Exception ex)
+                    {
+                        await transaction.RollbackAsync();
+                        _logger.LogError(ex, "Force update failed");
                     }
                 }
-
-                await _context.SaveChangesAsync();
             }
-            else if (status == "failed" || status == "cancelled")
-            {
-                transaction.Status = "failed";
-                await _context.SaveChangesAsync();
-            }
-
-            return new { success = true, message = "Payment processed" };
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Ошибка обработки webhook");
-            throw;
+            _logger.LogError(ex, "Webhook critical error");
         }
     }
-
-    private bool VerifySignature(byte[] payload, string signature, string secret)
-    {
-        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
-        var hash = hmac.ComputeHash(payload);
-        var computedSignature = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
-        
-        return string.Equals(computedSignature, signature, StringComparison.OrdinalIgnoreCase);
-    }
 }
-

@@ -6,6 +6,6 @@ namespace YessBackend.Application.DTOs
     public class UploadAvatarRequest
     {
         [Required]
-        public IFormFile Avatar { get; set; }
+        public IFormFile? Avatar { get; set; }
     }
 }
