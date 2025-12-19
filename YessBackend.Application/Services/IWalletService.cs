@@ -23,18 +23,18 @@ public interface IWalletService
     Task<WalletSyncResponseDto> SyncWalletAsync(WalletSyncRequestDto request);
     Task<TopUpResponseDto> TopUpWalletAsync(TopUpRequestDto request);
     Task<object> ProcessPaymentWebhookAsync(int transactionId, string status, decimal amount);
-    
+
     /// <summary>
     /// Пополнение YescoinBalance через Finik платеж
     /// </summary>
-    /// <param name="userId">ID пользователя (может быть строкой, нужно преобразовать в int)</param>
-    /// <param name="amount">Сумма для пополнения</param>
-    /// <param name="paymentId">ID платежа для идемпотентности</param>
-    /// <param name="transactionId">ID транзакции от Finik</param>
-    /// <returns>Результат операции</returns>
     Task<(bool Success, string Message, Transaction? Transaction)> TopUpYescoinBalanceAsync(
         string userId,
         decimal amount,
         string paymentId,
         string? transactionId = null);
+
+    /// <summary>
+    /// Списание YessCoin через QR-код партнера
+    /// </summary>
+    Task<bool> SpendYescoinsAsync(int userId, int partnerId, decimal amount);
 }

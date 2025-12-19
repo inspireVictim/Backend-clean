@@ -30,155 +30,73 @@ public class WalletController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<WalletResponseDto>> GetWallet()
     {
-        try
-        {
-            var userId = GetCurrentUserId();
-            if (userId == null) return Unauthorized(new { error = "Неверный токен" });
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
 
-            var wallet = await _walletService.GetWalletByUserIdAsync(userId.Value);
-            if (wallet == null) return NotFound(new { error = "Кошелек не найден" });
+        var wallet = await _walletService.GetWalletByUserIdAsync(userId.Value);
+        if (wallet == null) return NotFound();
 
-            var response = _mapper.Map<WalletResponseDto>(wallet);
-            return Ok(response);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Ошибка получения кошелька");
-            return StatusCode(500, new { error = "Внутренняя ошибка сервера" });
-        }
+        return Ok(_mapper.Map<WalletResponseDto>(wallet));
     }
 
-    /// <summary>
-    /// Получить баланс (ОБНОВЛЕНО: теперь balance возвращает Yescoin)
-    /// GET /api/v1/wallet/balance
-    /// </summary>
     [HttpGet("balance")]
     public async Task<ActionResult> GetBalance()
     {
-        try
-        {
-            var userId = GetCurrentUserId();
-            if (userId == null) return Unauthorized(new { error = "Неверный токен" });
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
 
-            // Читаем оба баланса
-            var moneyBalance = await _walletService.GetBalanceAsync(userId.Value);
-            var yescoinBalance = await _walletService.GetYescoinBalanceAsync(userId.Value);
+        var moneyBalance = await _walletService.GetBalanceAsync(userId.Value);
+        var yescoinBalance = await _walletService.GetYescoinBalanceAsync(userId.Value);
 
-            // Для фронтенда отдаем YescoinBalance в поле balance, как они просили
-            return Ok(new
-            {
-                balance = yescoinBalance, // Основной баланс для приложения
-                yescoin_balance = yescoinBalance,
-                fiat_balance = moneyBalance // Реальные деньги на отдельное поле
-            });
-        }
-        catch (Exception ex)
+        return Ok(new
         {
-            _logger.LogError(ex, "Ошибка получения баланса");
-            return StatusCode(500, new { error = "Внутренняя ошибка сервера" });
-        }
+            balance = yescoinBalance,
+            yescoin_balance = yescoinBalance,
+            fiat_balance = moneyBalance
+        });
+    }
+
+    [HttpPost("spend")]
+    public async Task<ActionResult> SpendCoins([FromBody] SpendCoinsRequestDto request)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+
+        var success = await _walletService.SpendYescoinsAsync(userId.Value, request.PartnerId, request.Amount);
+        if (!success) return BadRequest(new { error = "Ошибка списания или недостаточно средств" });
+
+        return Ok(new { message = "Успешно", spent = request.Amount });
     }
 
     [HttpGet("transactions")]
     public async Task<ActionResult<List<TransactionResponseDto>>> GetTransactions(
-        [FromQuery] int limit = 50,
-        [FromQuery] int offset = 0)
+        [FromQuery] int limit = 50, [FromQuery] int offset = 0)
     {
-        try
-        {
-            var userId = GetCurrentUserId();
-            if (userId == null) return Unauthorized(new { error = "Неверный токен" });
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
 
-            var transactions = await _walletService.GetUserTransactionsAsync(userId.Value, limit, offset);
-            var response = transactions.Select(t => _mapper.Map<TransactionResponseDto>(t)).ToList();
-            return Ok(response);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Ошибка получения транзакций");
-            return StatusCode(500, new { error = "Внутренняя ошибка сервера" });
-        }
+        var transactions = await _walletService.GetUserTransactionsAsync(userId.Value, limit, offset);
+        return Ok(transactions.Select(t => _mapper.Map<TransactionResponseDto>(t)).ToList());
     }
 
     [HttpPost("sync")]
     public async Task<ActionResult<WalletSyncResponseDto>> SyncWallet([FromBody] WalletSyncRequestDto request)
     {
-        try
-        {
-            var userId = GetCurrentUserId();
-            if (userId == null) return Unauthorized(new { error = "Неверный токен" });
-            request.UserId = userId.Value;
-            var response = await _walletService.SyncWalletAsync(request);
-            return Ok(response);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Ошибка синхронизации кошелька");
-            return StatusCode(500, new { error = "Внутренняя ошибка сервера" });
-        }
-    }
-
-    [HttpPost("topup")]
-    public async Task<ActionResult<TopUpResponseDto>> TopUpWallet([FromBody] TopUpRequestDto request)
-    {
-        try
-        {
-            var userId = GetCurrentUserId();
-            if (userId == null) return Unauthorized(new { error = "Неверный токен" });
-            request.UserId = userId.Value;
-            var response = await _walletService.TopUpWalletAsync(request);
-            return Ok(response);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Ошибка пополнения кошелька");
-            return StatusCode(500, new { error = "Внутренняя ошибка сервера" });
-        }
-    }
-
-    [HttpPost("webhook")]
-    public async Task<ActionResult> PaymentWebhook(
-        [FromQuery] int transaction_id,
-        [FromQuery] string status,
-        [FromQuery] decimal amount)
-    {
-        try
-        {
-            var result = await _walletService.ProcessPaymentWebhookAsync(transaction_id, status, amount);
-            return Ok(result);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Ошибка обработки webhook");
-            return StatusCode(500, new { error = "Внутренняя ошибка сервера" });
-        }
-    }
-
-    [HttpGet("history")]
-    public async Task<ActionResult<List<TransactionResponseDto>>> GetHistory([FromQuery] int user_id)
-    {
-        try
-        {
-            var currentUserId = GetCurrentUserId();
-            if (currentUserId == null || currentUserId.Value != user_id) return Forbid();
-
-            var transactions = await _walletService.GetTransactionHistoryAsync(user_id);
-            var response = transactions.Select(t => _mapper.Map<TransactionResponseDto>(t)).ToList();
-            return Ok(response);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Ошибка получения истории транзакций");
-            return StatusCode(500, new { error = "Внутренняя ошибка сервера" });
-        }
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+        request.UserId = userId.Value;
+        return Ok(await _walletService.SyncWalletAsync(request));
     }
 
     private int? GetCurrentUserId()
     {
-        var userIdClaim = User.FindFirst("user_id")?.Value
-            ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-        if (int.TryParse(userIdClaim, out var userId)) return userId;
-        return null;
+        var claim = User.FindFirst("user_id")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        return int.TryParse(claim, out var id) ? id : null;
     }
+}
+
+public class SpendCoinsRequestDto 
+{
+    public int PartnerId { get; set; }
+    public decimal Amount { get; set; }
 }
