@@ -74,15 +74,7 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(c =>
-{
-    c.SwaggerDoc("v1", new OpenApiInfo
-    {
-        Title = "YESS API",
-        Version = "v1",
-        Description = "YESS Backend API Documentation"
-    });
-});
+builder.Services.AddSwaggerGen();
 
 // ====== EF Core ======
 builder.Services.AddDbContext<ApplicationDbContext>(options =>

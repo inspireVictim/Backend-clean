@@ -5,6 +5,8 @@ using YessBackend.Application.DTOs.PartnerAuth;
 using YessBackend.Application.Services;
 using YessBackend.Infrastructure.Data;
 using YessBackend.Application.DTOs.Partner;
+using YessBackend.Application.DTOs.PartnerAuth;
+using Microsoft.EntityFrameworkCore;
 
 namespace YessBackend.Api.Controllers.v1;
 
