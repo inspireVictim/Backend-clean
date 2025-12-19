@@ -12,7 +12,6 @@ using YessBackend.Infrastructure.Services;
 using YessBackend.Api.Middleware;
 using YessBackend.Application.Interfaces.Payments;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
