@@ -17,6 +17,8 @@ public class PartnerRegisterRequestDto
     [Required(ErrorMessage = "Категория обязательна")]
     public string Category { get; set; } = string.Empty;
 
+    /**/
+
     [JsonPropertyName("phone")]
     [Required(ErrorMessage = "Телефон обязателен")]
     [Phone(ErrorMessage = "Неверный формат телефона")]
