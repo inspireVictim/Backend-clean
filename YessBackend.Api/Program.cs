@@ -12,6 +12,7 @@ using YessBackend.Infrastructure.Services;
 using YessBackend.Api.Middleware;
 using YessBackend.Application.Interfaces.Payments;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -73,7 +74,15 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "YESS API",
+        Version = "v1",
+        Description = "YESS Backend API Documentation"
+    });
+});
 
 // ====== EF Core ======
 builder.Services.AddDbContext<ApplicationDbContext>(options =>

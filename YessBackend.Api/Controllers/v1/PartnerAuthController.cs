@@ -5,8 +5,6 @@ using YessBackend.Application.DTOs.PartnerAuth;
 using YessBackend.Application.Services;
 using YessBackend.Infrastructure.Data;
 using YessBackend.Application.DTOs.Partner;
-using YessBackend.Application.DTOs.PartnerAuth;
-using Microsoft.EntityFrameworkCore;
 
 namespace YessBackend.Api.Controllers.v1;
 
@@ -109,14 +107,15 @@ public class PartnerAuthController : ControllerBase
     }
 
     /// <summary>
-/// Регистрация партнера
-/// POST /api/v1/partner/auth/register
-/// </summary>
-[HttpPost("register")]
-[ProducesResponseType(typeof(PartnerResponseDto), StatusCodes.Status200OK)]
-[ProducesResponseType(StatusCodes.Status400BadRequest)]
-public async Task<ActionResult<PartnerResponseDto>> PartnerRegister([FromBody] PartnerRegisterRequestDto request)
-{
+    /// Регистрация партнера
+    /// POST /api/v1/partner/auth/register
+    /// </summary>
+    [HttpPost("register")]
+    [ProducesResponseType(typeof(PartnerResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<PartnerResponseDto>> PartnerRegister([FromBody] PartnerRegisterRequestDto request)
+    {
     try
     {
         // Валидация модели (проверка обязательных полей)
