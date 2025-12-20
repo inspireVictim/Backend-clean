@@ -141,11 +141,12 @@ public class WalletService : IWalletService
             wallet.TotalSpent += amount;
             wallet.LastUpdated = DateTime.UtcNow;
 
+            // 2. Создаем запись транзакции
             var transRecord = new Transaction
             {
                 UserId = userId,
                 PartnerId = partnerId,
-                Amount = -amount,
+                Amount = amount, // Передаем положительное число, чтобы не нарушать check_positive_amount
                 Type = "QR_SPEND",
                 CreatedAt = DateTime.UtcNow,
                 Status = "SUCCESS",
