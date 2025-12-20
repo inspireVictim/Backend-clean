@@ -7,10 +7,6 @@ using YessBackend.Infrastructure.Data;
 
 namespace YessBackend.Infrastructure.Services;
 
-/// <summary>
-/// Сервис оплаты заказов
-/// Реализует логику из Python UnifiedPaymentGateway
-/// </summary>
 public class OrderPaymentService : IOrderPaymentService
 {
     private readonly ApplicationDbContext _context;
@@ -28,50 +24,26 @@ public class OrderPaymentService : IOrderPaymentService
     {
         try
         {
-            // Получение заказа
             var order = await _context.Orders
                 .FirstOrDefaultAsync(o => o.Id == orderId && o.UserId == userId);
 
-            if (order == null)
-            {
-                throw new InvalidOperationException("Заказ не найден");
-            }
+            if (order == null) throw new InvalidOperationException("Заказ не найден");
+            if (order.Status != OrderStatus.Pending || order.PaymentStatus == "paid")
+                throw new InvalidOperationException("Заказ уже оплачен или недоступен");
 
-            if (order.Status != OrderStatus.Pending)
-            {
-                throw new InvalidOperationException("Заказ уже оплачен или отменен");
-            }
-
-            if (order.PaymentStatus == "paid")
-            {
-                throw new InvalidOperationException("Заказ уже оплачен");
-            }
-
-            // Обработка платежа в зависимости от метода
             var transactionId = Guid.NewGuid().ToString();
             var status = "processing";
+            string walletInfo = ""; // Добавочка для чека
 
-            // Для wallet - списываем сразу с кошелька
             if (request.Method == Application.DTOs.OrderPayment.PaymentMethod.wallet)
             {
-                var wallet = await _context.Wallets
-                    .FirstOrDefaultAsync(w => w.UserId == userId);
+                var wallet = await _context.Wallets.FirstOrDefaultAsync(w => w.UserId == userId);
+                if (wallet == null) throw new InvalidOperationException("Кошелек не найден");
+                if (wallet.Balance < order.FinalAmount) throw new InvalidOperationException("Недостаточно коинов");
 
-                if (wallet == null)
-                {
-                    throw new InvalidOperationException("Кошелек не найден");
-                }
-
-                if (wallet.Balance < order.FinalAmount)
-                {
-                    throw new InvalidOperationException("Недостаточно средств на кошельке");
-                }
-
-                // Списываем средства
                 wallet.Balance -= order.FinalAmount;
                 wallet.LastUpdated = DateTime.UtcNow;
 
-                // Создаем транзакцию
                 var transaction = new Transaction
                 {
                     UserId = userId,
@@ -84,9 +56,8 @@ public class OrderPaymentService : IOrderPaymentService
                 };
 
                 _context.Transactions.Add(transaction);
-                await _context.SaveChangesAsync(); // Сохраняем чтобы получить transaction.Id
+                await _context.SaveChangesAsync();
 
-                // Обновляем заказ - связываем с транзакцией через TransactionId
                 order.TransactionId = transaction.Id;
                 order.PaymentMethod = "wallet";
                 order.PaymentStatus = "paid";
@@ -94,16 +65,22 @@ public class OrderPaymentService : IOrderPaymentService
                 order.PaidAt = DateTime.UtcNow;
 
                 await _context.SaveChangesAsync();
-
                 status = "success";
+
+                // Формируем инфо об остатке
+                walletInfo = $" Списано: {order.FinalAmount} коинов. Остаток: {wallet.Balance}.";
             }
             else
             {
-                // Для других методов - создаем pending транзакцию
                 order.PaymentMethod = request.Method.ToString();
                 order.PaymentStatus = "processing";
                 await _context.SaveChangesAsync();
             }
+
+            // ФОРМИРУЕМ ИТОГОВЫЙ ТЕКСТ ЧЕКА В MESSAGE
+            string finalMessage = status == "success"
+                ? $"[ЧЕК ОПЛАТЫ] Заказ №{orderId} оплачен успешно.{walletInfo} Дата: {DateTime.UtcNow:dd.MM.yyyy HH:mm}"
+                : "Платеж создан и ожидает обработки";
 
             return new PaymentResponseDto
             {
@@ -112,7 +89,7 @@ public class OrderPaymentService : IOrderPaymentService
                 Status = status,
                 Amount = order.FinalAmount,
                 Commission = 0,
-                Message = status == "success" ? "Платеж успешно обработан" : "Платеж создан"
+                Message = finalMessage
             };
         }
         catch (Exception ex)
@@ -129,10 +106,7 @@ public class OrderPaymentService : IOrderPaymentService
             var order = await _context.Orders
                 .FirstOrDefaultAsync(o => o.Id == orderId && o.UserId == userId);
 
-            if (order == null)
-            {
-                throw new InvalidOperationException("Заказ не найден");
-            }
+            if (order == null) throw new InvalidOperationException("Заказ не найден");
 
             return new PaymentStatusResponseDto
             {
@@ -150,4 +124,3 @@ public class OrderPaymentService : IOrderPaymentService
         }
     }
 }
-
