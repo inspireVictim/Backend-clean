@@ -8,10 +8,6 @@ using YessBackend.Infrastructure.Data;
 
 namespace YessBackend.Infrastructure.Services;
 
-/// <summary>
-/// Сервис заказов
-/// Реализует логику из Python OrderService
-/// </summary>
 public class OrderService : IOrderService
 {
     private readonly ApplicationDbContext _context;
@@ -29,20 +25,12 @@ public class OrderService : IOrderService
         var partner = await _context.Partners
             .FirstOrDefaultAsync(p => p.Id == partnerId);
 
-        if (partner == null)
-        {
-            throw new InvalidOperationException("Партнер не найден");
-        }
-
-        if (!partner.IsActive)
-        {
-            throw new InvalidOperationException("Партнер неактивен");
-        }
+        if (partner == null) throw new InvalidOperationException("Партнер не найден");
+        if (!partner.IsActive) throw new InvalidOperationException("Партнер неактивен");
 
         decimal orderTotal = 0;
-        var orderItemsData = new List<object>();
+        decimal totalYessCoinsRequired = 0;
 
-        // Расчет суммы товаров
         foreach (var item in items)
         {
             var product = await _context.PartnerProducts
@@ -52,65 +40,38 @@ public class OrderService : IOrderService
                     p.IsAvailable);
 
             if (product == null)
-            {
                 throw new InvalidOperationException($"Товар {item.ProductId} не найден или недоступен");
-            }
 
-            // Проверка наличия
-            if (product.StockQuantity.HasValue && product.StockQuantity.Value < item.Quantity)
+            // ЛОГИКА: Коины к списанию = (OriginalPrice - Price) * Quantity
+            if (product.OriginalPrice.HasValue && product.OriginalPrice.Value > product.Price)
             {
-                throw new InvalidOperationException(
-                    $"Недостаточно товара {product.Name}. Доступно: {product.StockQuantity}");
+                totalYessCoinsRequired += (product.OriginalPrice.Value - product.Price) * item.Quantity;
             }
 
-            // Расчет цены с учетом скидки
             var price = product.Price;
-            if (product.DiscountPercent > 0)
-            {
-                price = price * (1 - product.DiscountPercent / 100);
-            }
-
             var subtotal = price * item.Quantity;
             orderTotal += subtotal;
-
-            orderItemsData.Add(new
-            {
-                Product = product,
-                Quantity = item.Quantity,
-                Price = price,
-                Subtotal = subtotal,
-                Notes = item.Notes
-            });
         }
 
-        // Расчет скидки (максимальная скидка партнера)
-        var maxDiscount = orderTotal * (partner.MaxDiscountPercent / 100);
-        var discount = 0.0m; // Пока без скидки, можно добавить логику промокодов
-
-        // Расчет кэшбэка
-        var cashbackRate = partner.CashbackRate > 0 ? partner.CashbackRate : partner.DefaultCashbackRate;
-        if (cashbackRate == 0) cashbackRate = 5.0m; // По умолчанию 5%
-        var cashbackAmount = orderTotal * (cashbackRate / 100);
-
-        // Итоговая сумма
-        var finalAmount = orderTotal - discount;
-
-        // Получение баланса пользователя (если указан)
+        // Проверка баланса коинов
         decimal? userBalance = null;
         if (userId.HasValue)
         {
             var wallet = await _context.Wallets
                 .FirstOrDefaultAsync(w => w.UserId == userId.Value);
+
+            if (wallet != null && wallet.YescoinBalance < totalYessCoinsRequired)
+            {
+                throw new InvalidOperationException($"Недостаточно Yess!Coin. Нужно: {totalYessCoinsRequired}, у вас: {wallet.YescoinBalance}");
+            }
             userBalance = wallet?.Balance;
         }
 
         return new OrderCalculateResponseDto
         {
             OrderTotal = orderTotal,
-            Discount = discount,
-            CashbackAmount = cashbackAmount,
-            FinalAmount = finalAmount,
-            MaxDiscount = maxDiscount,
+            Discount = totalYessCoinsRequired, // Используем поле Discount для отображения списания коинов
+            FinalAmount = orderTotal,
             UserBalance = userBalance
         };
     }
@@ -119,39 +80,52 @@ public class OrderService : IOrderService
         int userId,
         OrderCreateRequestDto orderRequest)
     {
-        // Генерация idempotency key если не указан
         var idempotencyKey = orderRequest.IdempotencyKey ?? GenerateIdempotencyKey(
             userId, orderRequest.PartnerId, orderRequest.Items);
 
-        // Проверка идемпотентности
         var existingOrder = await _context.Orders
             .FirstOrDefaultAsync(o => o.IdempotencyKey == idempotencyKey);
 
-        if (existingOrder != null)
+        if (existingOrder != null) return existingOrder;
+
+        // Расчет коинов перед созданием
+        var calculation = await CalculateOrderAsync(orderRequest.PartnerId, orderRequest.Items, userId);
+
+        // 1. Списание коинов из кошелька (если они требуются)
+        if (calculation.Discount > 0)
         {
-            return existingOrder;
+            var wallet = await _context.Wallets.FirstOrDefaultAsync(w => w.UserId == userId);
+            if (wallet == null) throw new InvalidOperationException("Кошелек не найден");
+
+            wallet.YescoinBalance -= calculation.Discount;
+            wallet.TotalSpent += calculation.Discount;
+            wallet.LastUpdated = DateTime.UtcNow;
+
+            // 2. Создание транзакции (чтобы база не ругалась, сумма всегда > 0 здесь)
+            var transaction = new Transaction
+            {
+                UserId = userId,
+                PartnerId = orderRequest.PartnerId,
+                Type = "PAYMENT",
+                Amount = calculation.Discount,
+                Status = "SUCCESS",
+                Description = $"Оплата заказа коинами (Скидка: {calculation.Discount})",
+                CreatedAt = DateTime.UtcNow
+            };
+            _context.Set<Transaction>().Add(transaction);
         }
 
-        // Расчет заказа
-        var calculation = await CalculateOrderAsync(
-            orderRequest.PartnerId,
-            orderRequest.Items,
-            userId);
-
-        // Создание заказа
+        // 3. Создание заказа
         var order = new Order
         {
             UserId = userId,
             PartnerId = orderRequest.PartnerId,
             OrderTotal = calculation.OrderTotal,
             Discount = calculation.Discount,
-            CashbackAmount = calculation.CashbackAmount,
             FinalAmount = calculation.FinalAmount,
             Status = OrderStatus.Pending,
-            DeliveryAddress = orderRequest.DeliveryAddress,
             DeliveryType = orderRequest.DeliveryType ?? "pickup",
-            DeliveryNotes = orderRequest.DeliveryNotes,
-            PaymentStatus = "pending",
+            PaymentStatus = "paid_by_yescoin",
             IdempotencyKey = idempotencyKey,
             CreatedAt = DateTime.UtcNow
         };
@@ -159,63 +133,36 @@ public class OrderService : IOrderService
         _context.Orders.Add(order);
         await _context.SaveChangesAsync();
 
-        // Создание элементов заказа
+        // 4. Добавление товаров в заказ
         foreach (var item in orderRequest.Items)
         {
-            var product = await _context.PartnerProducts
-                .FirstOrDefaultAsync(p => p.Id == item.ProductId);
-
+            var product = await _context.PartnerProducts.FindAsync(item.ProductId);
             if (product == null) continue;
-
-            var price = product.Price;
-            if (product.DiscountPercent > 0)
-            {
-                price = price * (1 - product.DiscountPercent / 100);
-            }
 
             var orderItem = new OrderItem
             {
                 OrderId = order.Id,
                 ProductId = product.Id,
                 ProductName = product.Name,
-                ProductPrice = price,
+                ProductPrice = product.Price,
                 Quantity = item.Quantity,
-                Subtotal = price * item.Quantity,
-                Notes = item.Notes,
+                Subtotal = product.Price * item.Quantity,
                 CreatedAt = DateTime.UtcNow
             };
-
             _context.OrderItems.Add(orderItem);
 
-            // Обновление остатков
             if (product.StockQuantity.HasValue)
-            {
                 product.StockQuantity -= item.Quantity;
-            }
         }
 
         await _context.SaveChangesAsync();
-
-        // Загружаем связанные данные
-        await _context.Entry(order)
-            .Collection(o => o.Items)
-            .LoadAsync();
-
         return order;
     }
 
     public async Task<Order?> GetOrderByIdAsync(int orderId, int? userId = null)
     {
-        var query = _context.Orders
-            .Include(o => o.Items)
-            .Include(o => o.Partner)
-            .AsQueryable();
-
-        if (userId.HasValue)
-        {
-            query = query.Where(o => o.UserId == userId.Value);
-        }
-
+        var query = _context.Orders.Include(o => o.Items).AsQueryable();
+        if (userId.HasValue) query = query.Where(o => o.UserId == userId.Value);
         return await query.FirstOrDefaultAsync(o => o.Id == orderId);
     }
 
@@ -223,23 +170,16 @@ public class OrderService : IOrderService
     {
         return await _context.Orders
             .Include(o => o.Items)
-            .Include(o => o.Partner)
             .Where(o => o.UserId == userId)
             .OrderByDescending(o => o.CreatedAt)
-            .Skip(offset)
-            .Take(limit)
-            .ToListAsync();
+            .Skip(offset).Take(limit).ToListAsync();
     }
 
     public string GenerateIdempotencyKey(int userId, int partnerId, List<OrderItemDto> items)
     {
-        var sortedItems = items.OrderBy(i => i.ProductId)
-            .Select(i => $"{i.ProductId}:{i.Quantity}");
-        var itemsStr = string.Join(",", sortedItems);
+        var itemsStr = string.Join(",", items.OrderBy(i => i.ProductId).Select(i => $"{i.ProductId}:{i.Quantity}"));
         var data = $"{userId}:{partnerId}:{itemsStr}:{DateTime.UtcNow:O}";
-        
         using var sha256 = SHA256.Create();
-        var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(data));
-        return Convert.ToHexString(hash).ToLowerInvariant();
+        return Convert.ToHexString(sha256.ComputeHash(Encoding.UTF8.GetBytes(data))).ToLowerInvariant();
     }
 }
