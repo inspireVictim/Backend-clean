@@ -77,8 +77,31 @@ public class FinikPaymentService : IFinikPaymentService
 
             if (!int.TryParse(userIdStr, out int userId)) return false;
 
-            // ЛОГИКА X2: рассчитываем бонусы
-            decimal yescoinBonus = originalAmount * 2;
+            // ЛОГИКА Коэфицентов: рассчитываем бонусы
+            decimal multiiplyer;
+
+            if (originalAmount >= 5000)
+            {
+                multiiplyer = 5; 
+            }
+            else if (originalAmount >= 4000)
+            {
+                multiiplyer = 4; 
+            }
+            else if (originalAmount >= 3000)
+            {
+                multiiplyer = 3; 
+            }
+            else if (originalAmount >= 500)
+            {
+                multiiplyer = 2; 
+            }
+            else
+            {
+                multiiplyer = 1; 
+            }
+
+            decimal yescoinBonus = originalAmount * multiiplyer;
             _logger.LogInformation("SUCCESS: Processing User {User}. Adding {Som} SOM and {Coin} YessCoins", userId, originalAmount, yescoinBonus);
 
             using var transaction = await _context.Database.BeginTransactionAsync();
