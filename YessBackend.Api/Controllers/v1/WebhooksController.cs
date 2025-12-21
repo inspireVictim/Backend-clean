@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using YessBackend.Infrastructure.Data;
 using YessBackend.Domain.Entities;
+using System.Text.Json;
 
 namespace YessBackend.Api.Controllers.v1;
 
@@ -19,64 +20,36 @@ public class WebhooksController : ControllerBase
     }
 
     [HttpPost("callback")]
-    public async Task<IActionResult> PaymentCallback([FromBody] WebhookRequest request)
+    public async Task<IActionResult> PaymentCallback([FromBody] JsonElement request)
     {
-        _logger.LogInformation("Webhook: Пополнение баланса. ID Транзакции: {Id}, Статус: {Status}", request.OrderId, request.Status);
+        string? gatewayId = request.TryGetProperty("transactionId", out var gId) ? gId.GetString() : "test";
+        string? status = request.TryGetProperty("status", out var st) ? st.GetString() : null;
+        decimal amount = request.TryGetProperty("amount", out var am) ? am.GetDecimal() : 0;
 
-        var transaction = await _context.Transactions
-            .FirstOrDefaultAsync(t => t.Id == request.OrderId);
+        _logger.LogInformation("Webhook TEST MODE: Amount {Amount}, Status {Status}", amount, status);
 
-        if (transaction == null)
+        if (status == "succeeded" || status == "success")
         {
-            _logger.LogError("Webhook: Транзакция {Id} не найдена", request.OrderId);
-            return NotFound(new { error = "Transaction not found" });
-        }
-
-        if (transaction.Status == "SUCCESS" || transaction.Status == "completed")
-        {
-            return Ok(new { status = "already_processed" });
-        }
-
-        if (request.Status == "SUCCEEDED" || request.Status == "success" || request.Status == "Paid")
-        {
-            var wallet = await _context.Wallets.FirstOrDefaultAsync(w => w.UserId == transaction.UserId);
+            // Прямое начисление пользователю 13 для теста коэффициентов
+            var wallet = await _context.Wallets.FirstOrDefaultAsync(w => w.UserId == 13);
             
             if (wallet != null)
             {
-                transaction.BalanceBefore = wallet.YescoinBalance;
+                decimal multiplier = amount >= 5000 ? 5 : amount >= 4000 ? 4 : amount >= 3000 ? 3 : amount >= 500 ? 2 : 1;
+                decimal yescoinBonus = amount * multiplier;
 
-                // Начисляем коины (1 к 1 к сумме пополнения)
-                wallet.YescoinBalance += transaction.Amount; 
-                wallet.TotalEarned += transaction.Amount;
+                wallet.YescoinBalance += yescoinBonus;
+                wallet.Balance += amount;
+                wallet.TotalEarned += amount;
                 wallet.LastUpdated = DateTime.UtcNow;
-
-                transaction.BalanceAfter = wallet.YescoinBalance;
-                transaction.Status = "SUCCESS";
-                transaction.CompletedAt = DateTime.UtcNow;
-                transaction.ProcessedAt = DateTime.UtcNow;
 
                 await _context.SaveChangesAsync();
                 
-                _logger.LogInformation("Webhook: Баланс обновлен. User: {UserId}, +{Amount} коинов", 
-                    transaction.UserId, transaction.Amount);
+                _logger.LogInformation("!!! TEST SUCCESS !!! User 13 пополнен на {Amount} сом. Начислено {Bonus} коинов (x{M})", amount, yescoinBonus, multiplier);
+                return Ok(new { status = "success", debug = "forced_to_user_13" });
             }
-            else
-            {
-                return NotFound(new { error = "Wallet not found" });
-            }
-        }
-        else 
-        {
-            transaction.Status = "FAILED";
-            await _context.SaveChangesAsync();
         }
 
-        return Ok(new { status = "success" });
+        return Ok(new { status = "ignored" });
     }
-}
-
-public class WebhookRequest
-{
-    public int OrderId { get; set; }
-    public string Status { get; set; }
 }
