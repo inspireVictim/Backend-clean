@@ -41,10 +41,10 @@ public class FinikWebhookDto
     public string ReceiptNumber { get; set; } = string.Empty;
 
     // Дополнительные поля от Django Payment Service
-    [JsonPropertyName("userId")]
+    [JsonPropertyName("user_id")]
     public string? UserId { get; set; }
 
-    [JsonPropertyName("paymentId")]
+    [JsonPropertyName("payment_id")]
     public string? PaymentId { get; set; }
 
     [JsonPropertyName("currency")]

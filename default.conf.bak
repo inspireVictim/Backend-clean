@@ -1,0 +1,143 @@
+###############################
+# 1. REDIRECT HTTP → HTTPS
+###############################
+server {
+    listen 80;
+    server_name yessgo.org www.yessgo.org api.yessgo.org admin.yessgo.org partner.yessgo.org django.yessgo.org app.yessgo.org;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /usr/share/nginx/html;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+###############################
+# 2. DJANGO PAYMENT SERVICE (django.yessgo.org)
+###############################
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name django.yessgo.org;
+
+    ssl_certificate /etc/letsencrypt/live/yessgo.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/yessgo.org/privkey.pem;
+
+    location / {
+        if ($request_method = 'OPTIONS') {
+            add_header 'Access-Control-Allow-Origin' 'https://app.yessgo.org' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS' always;
+            add_header 'Access-Control-Allow-Headers' 'Authorization,Content-Type,Accept,Origin,X-Requested-With' always;
+            add_header 'Access-Control-Allow-Credentials' 'true' always;
+            return 204;
+        }
+        add_header 'Access-Control-Allow-Origin' 'https://app.yessgo.org' always;
+
+        proxy_pass http://payment-service:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+###############################
+# 3. API DOMAIN (api.yessgo.org)
+###############################
+server {
+    listen 443 ssl;
+    server_name api.yessgo.org;
+
+    ssl_certificate /etc/letsencrypt/live/yessgo.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/yessgo.org/privkey.pem;
+
+    # Специальный блок для вебхуков (Разрешаем IP платежки)
+    location ~* /webhooks/ {
+        allow 10.100.140.227;
+        allow all; # Временно, пока не проверим связь
+
+        proxy_pass http://csharp-backend:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        rewrite ^/api/v1/api/v1/(.*)$ /api/v1/$1 break;
+
+        if ($request_method = 'OPTIONS') {
+            add_header 'Access-Control-Allow-Origin' 'https://app.yessgo.org' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS, PUT, DELETE' always;
+            add_header 'Access-Control-Allow-Headers' 'Authorization,Content-Type,Accept,Origin,X-Requested-With' always;
+            add_header 'Access-Control-Allow-Credentials' 'true' always;
+            return 204;
+        }
+
+        proxy_pass http://csharp-backend:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_hide_header 'Access-Control-Allow-Origin';
+        add_header 'Access-Control-Allow-Origin' 'https://app.yessgo.org' always;
+        add_header 'Access-Control-Allow-Credentials' 'true' always;
+    }
+}
+
+###############################
+# 4. FRONTEND (app.yessgo.org)
+###############################
+server {
+    listen 443 ssl;
+    server_name app.yessgo.org;
+    ssl_certificate /etc/letsencrypt/live/yessgo.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/yessgo.org/privkey.pem;
+
+    root /var/www/web-version-YES-GO/dist;
+    index index.html;
+
+    location / {
+        add_header Cache-Control "no-store, no-cache, must-revalidate";
+        try_files $uri $uri/ /index.html =404;
+    }
+}
+
+###############################
+# 5. ADMIN & PARTNER PANELS
+###############################
+server {
+    listen 443 ssl;
+    server_name admin.yessgo.org;
+    ssl_certificate /etc/letsencrypt/live/yessgo.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/yessgo.org/privkey.pem;
+    root /var/www/PANEL-s_YESS-Go/admin-panel/dist;
+    location / { try_files $uri $uri/ /index.html =404; }
+}
+
+server {
+    listen 443 ssl;
+    server_name partner.yessgo.org;
+    ssl_certificate /etc/letsencrypt/live/yessgo.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/yessgo.org/privkey.pem;
+    root /var/www/PANEL-s_YESS-Go/partner-panel/dist;
+    location / { try_files $uri $uri/ /index.html =404; }
+}
+
+###############################
+# 6. LANDING (yessgo.org)
+###############################
+server {
+    listen 443 ssl;
+    server_name yessgo.org www.yessgo.org;
+    ssl_certificate /etc/letsencrypt/live/yessgo.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/yessgo.org/privkey.pem;
+    root /var/www/landing;
+    location / { try_files $uri $uri/ /index.html =404; }
+}

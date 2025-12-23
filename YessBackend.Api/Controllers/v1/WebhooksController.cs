@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using YessBackend.Infrastructure.Data;
-using YessBackend.Domain.Entities;
 using System.Text.Json;
 
 namespace YessBackend.Api.Controllers.v1;
@@ -22,34 +21,39 @@ public class WebhooksController : ControllerBase
     [HttpPost("callback")]
     public async Task<IActionResult> PaymentCallback([FromBody] JsonElement request)
     {
-        string? gatewayId = request.TryGetProperty("transactionId", out var gId) ? gId.GetString() : "test";
+        _logger.LogInformation("RAW JSON: {Json}", request.GetRawText());
+
         string? status = request.TryGetProperty("status", out var st) ? st.GetString() : null;
         decimal amount = request.TryGetProperty("amount", out var am) ? am.GetDecimal() : 0;
-
-        _logger.LogInformation("Webhook TEST MODE: Amount {Amount}, Status {Status}", amount, status);
-
-        if (status == "succeeded" || status == "success")
+        
+        // Пытаемся вытащить ID из описания (Data -> name_en или description)
+        string? description = "";
+        if (request.TryGetProperty("data", out var data))
         {
-            // Прямое начисление пользователю 13 для теста коэффициентов
-            var wallet = await _context.Wallets.FirstOrDefaultAsync(w => w.UserId == 13);
-            
-            if (wallet != null)
-            {
-                decimal multiplier = amount >= 5000 ? 5 : amount >= 4000 ? 4 : amount >= 3000 ? 3 : amount >= 500 ? 2 : 1;
-                decimal yescoinBonus = amount * multiplier;
-
-                wallet.YescoinBalance += yescoinBonus;
-                wallet.Balance += amount;
-                wallet.TotalEarned += amount;
-                wallet.LastUpdated = DateTime.UtcNow;
-
-                await _context.SaveChangesAsync();
-                
-                _logger.LogInformation("!!! TEST SUCCESS !!! User 13 пополнен на {Amount} сом. Начислено {Bonus} коинов (x{M})", amount, yescoinBonus, multiplier);
-                return Ok(new { status = "success", debug = "forced_to_user_13" });
-            }
+            description = data.TryGetProperty("description", out var desc) ? desc.GetString() : "";
         }
 
-        return Ok(new { status = "ignored" });
+        string? userIdStr = null;
+        if (!string.IsNullOrEmpty(description) && description.Contains("USER_ID:"))
+        {
+            userIdStr = description.Split("USER_ID:")[1].Trim();
+        }
+
+        if ((status == "succeeded" || status == "success") && !string.IsNullOrEmpty(userIdStr))
+        {
+            if (int.TryParse(userIdStr, out int targetUserId))
+            {
+                var wallet = await _context.Wallets.FirstOrDefaultAsync(w => w.UserId == targetUserId);
+                if (wallet != null)
+                {
+                    wallet.YescoinBalance += amount; // Начислить 1 к 1 для теста
+                    wallet.Balance += amount;
+                    await _context.SaveChangesAsync();
+                    _logger.LogInformation("!!! MATCH SUCCESS !!! User {UserId} found via description", targetUserId);
+                    return Ok(new { status = "success" });
+                }
+            }
+        }
+        return Ok(new { status = "user_not_found" });
     }
 }

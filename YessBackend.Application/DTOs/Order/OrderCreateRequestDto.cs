@@ -2,9 +2,6 @@ using System.ComponentModel.DataAnnotations;
 
 namespace YessBackend.Application.DTOs.Order;
 
-/// <summary>
-/// DTO для создания заказа
-/// </summary>
 public class OrderCreateRequestDto
 {
     [Required]
@@ -17,4 +14,7 @@ public class OrderCreateRequestDto
     public string DeliveryType { get; set; } = "pickup";
     public string? DeliveryNotes { get; set; }
     public string? IdempotencyKey { get; set; }
+
+    // Новое поле для выбора оплаты: "card" или "yescoin"
+    public string PaymentMethod { get; set; } = "card";
 }
