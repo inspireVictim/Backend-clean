@@ -457,4 +457,13 @@ public class AuthService : IAuthService
         timestampCode += timestamp.Substring(Math.Max(0, timestamp.Length - 4));
         return timestampCode;
     }
+    public async Task<User?> UpdateUserAsync(int userId, UpdateProfileRequestDto dto)
+    {
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null) return null;
+        if (!string.IsNullOrWhiteSpace(dto.FirstName)) user.FirstName = dto.FirstName;
+        if (!string.IsNullOrWhiteSpace(dto.LastName)) user.LastName = dto.LastName;
+        await _context.SaveChangesAsync();
+        return user;
+    }
 }
