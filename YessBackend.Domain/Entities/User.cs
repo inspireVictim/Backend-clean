@@ -58,7 +58,7 @@ public class User
     // Реферальная система
     [MaxLength(50)]
     public string? ReferralCode { get; set; }
-    public int? ReferredBy { get; set; }
+    public string? ReferredBy { get; set; }
     
     // Активность
     public bool IsActive { get; set; } = true;
