@@ -439,4 +439,23 @@ public class AuthController : ControllerBase
         [JsonPropertyName("phone_number")]
         public string PhoneNumber { get; set; } = string.Empty;
     }
+
+    ///Обновление данных со стороны пользователя
+    [HttpPatch("me")]
+    [Authorize]
+    public async Task<ActionResult<UserResponseDto>> UpdateMe([FromBody] UpdateProfileRequestDto request)
+    {
+        var userIdClaim = User.FindFirst("user_id")?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !int.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized(new { error = "Неверный токен" });
+        }
+
+        // Вызываем сервис
+        var updatedUser = await _authService.UpdateUserAsync(userId, request);
+
+        if (updatedUser == null) return NotFound(new { error = "Пользователь не найден" });
+
+        return Ok(_mapper.Map<UserResponseDto>(updatedUser));
+    }
 }
