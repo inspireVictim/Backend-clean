@@ -1,6 +1,4 @@
 using YessBackend.Application.DTOs.AdminAuth;
-using YessBackend.Application.DTOs.Auth;
-using YessBackend.Domain.Entities;
 
 namespace YessBackend.Application.Services;
 
@@ -9,14 +7,18 @@ namespace YessBackend.Application.Services;
 /// </summary>
 public interface IAdminAuthService
 {
-    Task<AdminUser> RegisterAdminAsync(AdminRegisterDto registerDto);
-    Task<TokenResponseDto> LoginAsync(AdminLoginDto loginDto);
-    Task<AdminUser?> GetAdminByUsernameAsync(string username);
-    Task<AdminUser?> GetAdminByEmailAsync(string email);
-    Task<AdminUser?> GetAdminByIdAsync(Guid adminId);
-    string HashPassword(string password);
-    bool VerifyPassword(string password, string hash);
-    string CreateAccessToken(AdminUser adminUser);
-    string CreateRefreshToken(AdminUser adminUser);
-}
+    /// <summary>
+    /// Регистрация нового администратора
+    /// </summary>
+    Task<AdminResponseDto> RegisterAdminAsync(AdminRegisterDto registerDto);
 
+    /// <summary>
+    /// Вход в систему (проверка данных и генерация токенов)
+    /// </summary>
+    Task<AdminLoginResponseDto> LoginAsync(AdminLoginDto loginDto);
+
+    /// <summary>
+    /// Получение данных администратора по ID
+    /// </summary>
+    Task<AdminResponseDto?> GetAdminByIdAsync(Guid adminId);
+}
