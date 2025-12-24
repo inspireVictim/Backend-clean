@@ -9,8 +9,10 @@ public class ApplicationDbContext : DbContext
     public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
         : base(options)
     {
-
     }
+
+    // Добавлено: Баннеры
+    public DbSet<BannersDto> Banners { get; set; }
 
     // Users and Authentication
     public DbSet<User> Users { get; set; }
@@ -69,14 +71,11 @@ public class ApplicationDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        // 1. Базовый вызов
         base.OnModelCreating(modelBuilder);
 
-        // 2. Регистрация Enum для PostgreSQL (версия для строк)
-        // Если база данных уже содержит этот тип, мы просто уведомляем EF о его существовании
-        // modelBuilder.HasPostgresEnum(null, "admin_role", null);
+        // Конфигурация баннеров (маппинг на таблицу)
+        modelBuilder.Entity<BannersDto>().ToTable("Banners");
 
-        // 3. Применение конфигураций
         modelBuilder.ApplyConfiguration(new UserConfiguration());
         modelBuilder.ApplyConfiguration(new AdminUserConfiguration());
         modelBuilder.ApplyConfiguration(new WalletConfiguration());

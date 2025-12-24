@@ -1,17 +1,17 @@
-using YessBackend.Application.Config;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.Extensions.Logging;
-using YessBackend.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.FileProviders;
+using YessBackend.Application.Config;
+using YessBackend.Infrastructure.Data;
 using YessBackend.Application.Extensions;
 using YessBackend.Infrastructure.Extensions;
 using YessBackend.Application.Services;
 using YessBackend.Infrastructure.Services;
 using YessBackend.Api.Middleware;
 using YessBackend.Application.Interfaces.Payments;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -33,7 +33,7 @@ builder.Services.Configure<FinikPaymentConfig>(configuration.GetSection("FinikPa
 builder.Services.AddScoped<IFinikSignatureService, FinikSignatureService>();
 builder.Services.AddHttpClient<IFinikPaymentService, FinikPaymentService>();
 
-// ====== WEBHOOKS & ADDITIONAL SERVICES (Фикс ошибки 500) ======
+// ====== WEBHOOKS & ADDITIONAL SERVICES ======
 builder.Services.AddScoped<IWebhookService, WebhookService>();
 builder.Services.AddScoped<IOptimaPaymentService, OptimaPaymentService>();
 
@@ -74,7 +74,6 @@ builder.Services.AddAuthentication(options =>
         ClockSkew = TimeSpan.Zero
     };
 });
-/*анел*/
 
 builder.Services.AddAuthorization();
 builder.Services.AddEndpointsApiExplorer();
@@ -94,6 +93,7 @@ builder.Services.AddYessBackendServices();
 
 var app = builder.Build();
 
+// ====== SWAGGER ======
 app.UseSwagger();
 app.UseSwaggerUI(c => {
     c.SwaggerEndpoint("/swagger/v1/swagger.json", "YESS API v1");
@@ -103,8 +103,27 @@ app.UseSwaggerUI(c => {
 app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 app.UseCors("AllowCors");
 
+// ====== НАСТРОЙКА РАЗДАЧИ БАННЕРОВ (STATIC FILES) ======
+// Путь к физической папке: /app/Storage/Banners (внутри Docker) или корень проекта/Storage/Banners
+var bannersPath = Path.Combine(app.Environment.ContentRootPath, "Storage", "Banners");
+
+if (!Directory.Exists(bannersPath))
+{
+    Directory.CreateDirectory(bannersPath);
+}
+
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(bannersPath),
+    RequestPath = "/content/banners" // URL будет: http://host:5000/content/banners/image.jpg
+});
+
+// Стандартный UseStaticFiles для wwwroot (если нужен)
+app.UseStaticFiles();
+
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
 app.Run();
