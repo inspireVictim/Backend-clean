@@ -21,61 +21,87 @@ public class WebhooksController : ControllerBase
     [HttpPost("callback")]
     public async Task<IActionResult> PaymentCallback([FromBody] JsonElement request)
     {
+        // Логируем входящий запрос целиком для отладки
         _logger.LogInformation("RAW JSON RECEIVED: {Json}", request.GetRawText());
 
-        // 1. Извлекаем статус и сумму
-        string? status = request.TryGetProperty("status", out var st) ? st.GetString() : null;
-        decimal amount = request.TryGetProperty("amount", out var am) ? am.GetDecimal() : 0;
-
-        // 2. Извлекаем описание для поиска UserID
-        string? description = "";
-        if (request.TryGetProperty("data", out var data))
+        try
         {
-            description = data.TryGetProperty("description", out var desc) ? desc.GetString() : "";
-        }
+            // 1. Извлекаем статус и сумму
+            string? status = request.TryGetProperty("status", out var st) ? st.GetString() : null;
+            decimal amount = request.TryGetProperty("amount", out var am) ? am.GetDecimal() : 0;
 
-        string? userIdStr = null;
-        if (!string.IsNullOrEmpty(description) && description.Contains("USER_ID:"))
-        {
-            userIdStr = description.Split("USER_ID:")[1].Trim();
-        }
+            _logger.LogInformation("Parsed Payment Data: Status={Status}, Amount={Amount}", status, amount);
 
-        // Проверяем статус (Averspay присылает 'succeeded')
-        if ((status == "succeeded" || status == "success") && !string.IsNullOrEmpty(userIdStr))
-        {
-            if (int.TryParse(userIdStr, out int targetUserId))
+            // 2. Извлекаем описание (через вложенный объект data)
+            string? description = "";
+            if (request.TryGetProperty("data", out var data))
             {
-                var wallet = await _context.Wallets.FirstOrDefaultAsync(w => w.UserId == targetUserId);
-                if (wallet != null)
+                description = data.TryGetProperty("description", out var desc) ? desc.GetString() : "";
+            }
+
+            // 3. Поиск UserID в строке описания
+            string? userIdStr = null;
+            if (!string.IsNullOrEmpty(description) && description.Contains("USER_ID:"))
+            {
+                // Используем вашу логику разделения строки
+                userIdStr = description.Split("USER_ID:")[1].Trim();
+            }
+
+            // 4. Проверка условий для начисления
+            // Averspay может присылать 'succeeded', 'success' или другие финальные статусы
+            if ((status == "succeeded" || status == "success") && !string.IsNullOrEmpty(userIdStr))
+            {
+                if (int.TryParse(userIdStr, out int targetUserId))
                 {
-                    // --- ЛОГИКА МНОЖИТЕЛЕЙ (БЕРЕМ ИЗ ВАШЕГО ТЗ) ---
-                    decimal multiplier = amount >= 5000 ? 10m : 5m;
-                    decimal yescoinBonus = amount * multiplier;
-                    // ----------------------------------------------
+                    _logger.LogInformation("Attempting to update wallet for UserID: {UserId}", targetUserId);
 
-                    wallet.Balance += amount;            // Обычные сомы
-                    wallet.YescoinBalance += yescoinBonus; // Коины с множителем
-                    wallet.TotalEarned += amount;
-                    wallet.LastUpdated = DateTime.UtcNow;
+                    // Ищем кошелек пользователя
+                    var wallet = await _context.Wallets.FirstOrDefaultAsync(w => w.UserId == targetUserId);
 
-                    await _context.SaveChangesAsync();
+                    if (wallet != null)
+                    {
+                        // --- ЛОГИКА МНОЖИТЕЛЕЙ (ПО ТЗ) ---
+                        // Если сумма >= 5000, множитель x10, иначе x5
+                        decimal multiplier = amount >= 5000m ? 10m : 5m;
+                        decimal yescoinBonus = amount * multiplier;
+                        // ---------------------------------
 
-                    _logger.LogInformation("!!! PAYMENT SUCCESS !!! User: {UserId}, Amount: {Am}, Coins Added: {Coins} (x{Mult})",
-                        targetUserId, amount, yescoinBonus, multiplier);
+                        // Обновляем балансы
+                        wallet.Balance += amount;               // Реальные деньги (сомы)
+                        wallet.YescoinBalance += yescoinBonus;  // Бонусные коины
+                        wallet.TotalEarned += amount;           // Общая статистика
+                        wallet.LastUpdated = DateTime.UtcNow;
 
-                    return Ok(new { status = "success" });
+                        await _context.SaveChangesAsync();
+
+                        _logger.LogInformation("!!! PAYMENT SUCCESS !!! User: {UserId}, Amount: {Am}, Coins Added: {Coins} (x{Mult})",
+                            targetUserId, amount, yescoinBonus, multiplier);
+
+                        return Ok(new { status = "success", message = "Wallet updated" });
+                    }
+                    else
+                    {
+                        _logger.LogWarning("!!! User {UserId} found but WALLET record is missing in database", targetUserId);
+                    }
                 }
                 else
                 {
-                    _logger.LogWarning("!!! User {UserId} found but WALLET missing in DB", targetUserId);
+                    _logger.LogWarning("!!! Could not parse UserId from string: {Raw}", userIdStr);
                 }
             }
             else
             {
-                _logger.LogWarning("!!! Could not parse UserId from string: {Raw}", userIdStr);
+                _logger.LogInformation("Webhook processed: No action taken (Status: {Status}, UserStr: {UserStr})", status, userIdStr);
             }
-        }
 
-        return Ok(new { status = "processed_with_no_action" });
+            return Ok(new { status = "processed_with_no_action" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "FATAL ERROR in PaymentCallback: {Message}", ex.Message);
+            // Возвращаем 200, чтобы платежка не долбила сервер повторно при ошибках кода, 
+            // но логируем всё для ручного разбора
+            return Ok(new { status = "error", message = "Internal error occurred" });
+        }
     }
 }

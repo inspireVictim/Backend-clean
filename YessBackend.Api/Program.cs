@@ -1,18 +1,20 @@
-using System.Text;
-using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.IdentityModel.Tokens;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.FileProviders;
-using YessBackend.Application.Config;
-using YessBackend.Infrastructure.Data;
-using YessBackend.Application.Extensions;
-using YessBackend.Infrastructure.Extensions;
-using YessBackend.Application.Services;
-using YessBackend.Infrastructure.Services;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi;
+using Microsoft.OpenApi.Models; // Для OpenApiInfo
+using System.Text;
+using System.Text.Json;
 using YessBackend.Api.Middleware;
+using YessBackend.Application.Config;
+using YessBackend.Application.Extensions;
 using YessBackend.Application.Interfaces.Payments;
+using YessBackend.Application.Services;
+using YessBackend.Infrastructure.Data;
+using YessBackend.Infrastructure.Extensions;
+using YessBackend.Infrastructure.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -33,29 +35,25 @@ builder.WebHost.ConfigureKestrel(options =>
 builder.Services.Configure<FinikPaymentConfig>(configuration.GetSection("FinikPayment"));
 builder.Services.AddScoped<IFinikSignatureService, FinikSignatureService>();
 
-// Регистрируем наш сервис пополнения (убеждаемся, что он доступен)
+// Регистрация сервисов платежей
 builder.Services.AddHttpClient<IFinikPaymentService, FinikPaymentService>();
 builder.Services.AddScoped<IFinikPaymentService, FinikPaymentService>();
-
 builder.Services.AddScoped<IWebhookService, WebhookService>();
 builder.Services.AddScoped<IOptimaPaymentService, OptimaPaymentService>();
 
 // ====== Controllers ======
 builder.Services.AddControllers()
     .AddJsonOptions(options => {
-        // null сохраняет имена как в C# (PascalCase), 
-        // но для фронтенда лучше использовать JsonNamingPolicy.CamelCase
+        // Устанавливаем camelCase для фронтенда
         options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
     });
 
-// ====== CORS (Разрешаем фронтенду доступ) ======
+// ====== CORS ======
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowCors", policy =>
     {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
+        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
     });
 });
 
@@ -84,7 +82,13 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+
+// ====== ИСПРАВЛЕННЫЙ SWAGGER GEN ======
+builder.Services.AddSwaggerGen(c => {
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "YESS API", Version = "v1" });
+    // Фикс для корректной работы UploadBanner (обработка файлов)
+    c.MapType<IFormFile>(() => new OpenApiSchema { Type = "string", Format = "binary" });
+});
 
 // ====== EF Core ======
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -94,6 +98,8 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 });
 
 builder.Services.AddHttpClient();
+
+// ВОЗВРАЩАЕМ ВАШИ ОРИГИНАЛЬНЫЕ МЕТОДЫ РАСШИРЕНИЯ
 builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructureServices(configuration);
 builder.Services.AddYessBackendServices();
@@ -110,9 +116,12 @@ app.UseSwaggerUI(c => {
 app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 app.UseCors("AllowCors");
 
-// ====== РАЗДАЧА БАННЕРОВ ======
+// ====== РАЗДАЧА БАННЕРОВ (STATIC FILES) ======
 var bannersPath = Path.Combine(app.Environment.ContentRootPath, "Storage", "Banners");
-if (!Directory.Exists(bannersPath)) Directory.CreateDirectory(bannersPath);
+if (!Directory.Exists(bannersPath))
+{
+    Directory.CreateDirectory(bannersPath);
+}
 
 app.UseStaticFiles(new StaticFileOptions
 {

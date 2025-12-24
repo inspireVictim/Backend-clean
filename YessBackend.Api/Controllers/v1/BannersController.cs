@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using YessBackend.Infrastructure.Data;
+using YessBackend.Domain.Entities; // Убедитесь, что BannersDto (или Banner) здесь
 
 namespace YessBackend.Api.Controllers.v1;
 
@@ -18,9 +19,6 @@ public class BannersController : ControllerBase
         _context = context;
     }
 
-    /// <summary>
-    /// Получить активные баннеры с фильтрацией по городу и партнеру
-    /// </summary>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult> GetBanners(
@@ -31,9 +29,7 @@ public class BannersController : ControllerBase
         {
             _logger.LogInformation("Запрос баннеров: CityId={CityId}, PartnerId={PartnerId}", city_id, partner_id);
 
-            // Базовый путь для формирования ссылок
             var baseUrl = $"{Request.Scheme}://{Request.Host}/content/banners/";
-
             var query = _context.Banners.AsQueryable().Where(b => b.IsActive);
 
             if (city_id.HasValue)
@@ -64,15 +60,15 @@ public class BannersController : ControllerBase
             _logger.LogError(ex, "Ошибка при получении баннеров");
             return StatusCode(500, new { error = "Внутренняя ошибка сервера" });
         }
-    } // Скобка закрывает GetBanners
+    }
 
     /// <summary>
     /// Загрузить новый баннер
     /// </summary>
     [HttpPost("upload")]
-    [Consumes("multipart/form-data")]
+    [Consumes("multipart/form-data")] // Критично для Swagger
     public async Task<IActionResult> UploadBanner(
-        [FromForm] IFormFile file,
+        IFormFile file,               // Убрали [FromForm], Swagger поймет это сам
         [FromForm] string title,
         [FromForm] int? city_id,
         [FromForm] int? partner_id)
@@ -82,30 +78,33 @@ public class BannersController : ControllerBase
             if (file == null || file.Length == 0)
                 return BadRequest(new { error = "Файл не выбран" });
 
-            // Проверка расширения (безопасность)
             var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp" };
             var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
 
             if (!allowedExtensions.Contains(extension))
                 return BadRequest(new { error = "Неподдерживаемый формат файла" });
 
-            // 1. Генерируем уникальное имя файла
+            // 1. Уникальное имя
             var fileName = $"{Guid.NewGuid()}{extension}";
 
-            // 2. Путь к папке
-            var directoryPath = Path.Combine(Directory.GetCurrentDirectory(), "Storage", "Banners");
+            // 2. Используем базовый путь приложения (надежнее для Docker)
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            var directoryPath = Path.Combine(baseDir, "Storage", "Banners");
+
             if (!Directory.Exists(directoryPath))
                 Directory.CreateDirectory(directoryPath);
 
             var filePath = Path.Combine(directoryPath, fileName);
 
-            // 3. Сохраняем файл на диск
+            // 3. Сохранение
             using (var stream = new FileStream(filePath, FileMode.Create))
             {
                 await file.CopyToAsync(stream);
             }
 
-            // 4. Записываем данные в базу
+            // 4. База данных
+            // ПРИМЕЧАНИЕ: Если ваш класс в базе называется BannersDto, оставьте так. 
+            // Но обычно это Entity класс (например, Banner).
             var banner = new BannersDto
             {
                 Title = title,
