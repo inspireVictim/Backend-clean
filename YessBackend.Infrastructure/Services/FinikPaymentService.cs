@@ -28,23 +28,23 @@ public class FinikPaymentService : IFinikPaymentService
 
     public async Task<bool> ProcessWebhookAsync(FinikWebhookDto dto)
     {
-        // Выбираем ID платежа (числовой ID или UUID)
+        // Выбираем ID платежа
         var searchId = !string.IsNullOrEmpty(dto.PaymentId) ? dto.PaymentId : dto.TransactionId;
 
         if (string.IsNullOrEmpty(searchId))
         {
-            _logger.LogWarning("!!! Webhook received without any PaymentId or TransactionId");
+            _logger.LogWarning("!!! Finik Webhook: No ID provided");
             return false;
         }
 
-        _logger.LogInformation(">>> START PROCESSING WEBHOOK. ID: {Id}", searchId);
+        _logger.LogInformation(">>> START FINIK WEBHOOK FOR ID: {Id}", searchId);
 
         try
         {
             string userIdStr = null;
             decimal originalAmount = 0;
 
-            // 1. ИЩЕМ ПЛАТЕЖ В БАЗЕ
+            // 1. ПОЛУЧАЕМ ДАННЫЕ ИЗ БД (Django table)
             using (var command = _context.Database.GetDbConnection().CreateCommand())
             {
                 if (int.TryParse(searchId, out int numericId))
@@ -73,31 +73,37 @@ public class FinikPaymentService : IFinikPaymentService
                     userIdStr = reader.GetValue(0)?.ToString();
                     originalAmount = reader.GetDecimal(1);
                 }
+                else
+                {
+                    _logger.LogError("!!! Payment {Id} not found in database", searchId);
+                    return false;
+                }
             }
 
-            // ПРОВЕРКИ
-            if (string.IsNullOrEmpty(userIdStr) || userIdStr.ToLower() == "guest_user")
+            // ПРОВЕРКА ПОЛЬЗОВАТЕЛЯ
+            if (string.IsNullOrEmpty(userIdStr) || userIdStr == "guest_user")
             {
-                _logger.LogWarning("!!! PAYMENT {Id} IGNORED: User is '{UserStr}'. No wallet to update.", searchId, userIdStr ?? "null");
+                _logger.LogWarning("!!! Payment {Id} has no valid user (guest_user). Aborting wallet update.", searchId);
                 return false;
             }
 
             if (!int.TryParse(userIdStr, out int userId))
             {
-                _logger.LogError("!!! FAILED TO PARSE USER_ID: {Raw}", userIdStr);
+                _logger.LogError("!!! Cannot parse UserId '{Raw}' to integer", userIdStr);
                 return false;
             }
 
-            // 2. РАСЧЕТ МНОЖИТЕЛЯ (Коэффициенты)
+            // 2. ЛОГИКА МНОЖИТЕЛЕЙ (Синхронно с контроллером)
             decimal multiplier = originalAmount >= 5000 ? 10m : 5m;
             decimal yescoinBonus = originalAmount * multiplier;
 
-            _logger.LogInformation("CALCULATION: Amount {Am} * Multiplier {M} = {Res} YessCoins", originalAmount, multiplier, yescoinBonus);
+            _logger.LogInformation("CALCULATION: User {User}, Amount {Am}, Multiplier {M} = {Coins} Coins",
+                userId, originalAmount, multiplier, yescoinBonus);
 
             using var transaction = await _context.Database.BeginTransactionAsync();
 
-            // 3. ОБНОВЛЕНИЕ ИЛИ СОЗДАНИЕ КОШЕЛЬКА (UPSERT)
-            // Используем ON CONFLICT, чтобы если кошелька нет, он создался автоматически
+            // 3. ОБНОВЛЕНИЕ КОШЕЛЬКА (UPSERT - создаст если нет)
+            // Добавлена поддержка создания записи, если UserId еще не в таблице wallets
             var upsertWalletSql = @"
                 INSERT INTO wallets (""UserId"", ""Balance"", ""YescoinBalance"", ""TotalEarned"", ""LastUpdated"")
                 VALUES ({3}, {0}, {1}, {0}, {2})
@@ -108,33 +114,32 @@ public class FinikPaymentService : IFinikPaymentService
                     ""TotalEarned"" = wallets.""TotalEarned"" + EXCLUDED.""Balance"",
                     ""LastUpdated"" = EXCLUDED.""LastUpdated"";";
 
-            int affectedRows = await _context.Database.ExecuteSqlRawAsync(upsertWalletSql,
+            int walletRows = await _context.Database.ExecuteSqlRawAsync(upsertWalletSql,
                 originalAmount,     // {0}
                 yescoinBonus,      // {1}
                 DateTime.UtcNow,    // {2}
                 userId);            // {3}
 
             // 4. ОБНОВЛЕНИЕ СТАТУСА ПЛАТЕЖА
-            string updatePaymentSql;
             if (int.TryParse(searchId, out int nId))
             {
-                updatePaymentSql = "UPDATE payments_payment SET status = 'SUCCESS' WHERE id = {0}";
-                await _context.Database.ExecuteSqlRawAsync(updatePaymentSql, nId);
+                await _context.Database.ExecuteSqlRawAsync("UPDATE payments_payment SET status = 'SUCCESS' WHERE id = {0}", nId);
             }
             else
             {
-                updatePaymentSql = "UPDATE payments_payment SET status = 'SUCCESS' WHERE payment_id = {0}::uuid";
-                await _context.Database.ExecuteSqlRawAsync(updatePaymentSql, searchId);
+                await _context.Database.ExecuteSqlRawAsync("UPDATE payments_payment SET status = 'SUCCESS' WHERE payment_id = {0}::uuid", searchId);
             }
 
             await transaction.CommitAsync();
 
-            _logger.LogInformation(">>> SUCCESS: User {User} updated. Added {Coins} coins. (Rows: {Rows})", userId, yescoinBonus, affectedRows);
+            _logger.LogInformation(">>> FINISHED: User {User} balance updated. Added {Coin} YessCoins. Rows affected: {Count}",
+                userId, yescoinBonus, walletRows);
+
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "!!! FATAL ERROR IN WEBHOOK: {Msg}", ex.Message);
+            _logger.LogError(ex, "!!! FATAL ERROR in FinikPaymentService: {Msg}", ex.Message);
             return false;
         }
     }
