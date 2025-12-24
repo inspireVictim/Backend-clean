@@ -5,6 +5,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
+using AutoMapper; // Добавлено
 using YessBackend.Application.DTOs.Auth;
 using YessBackend.Application.Services;
 using YessBackend.Domain.Entities;
@@ -16,13 +17,30 @@ public class AuthService : IAuthService
 {
     private readonly ApplicationDbContext _context;
     private readonly IConfiguration _configuration;
+    private readonly IMapper _mapper; // Добавлено
     private readonly ILogger<AuthService>? _logger;
 
-    public AuthService(ApplicationDbContext context, IConfiguration configuration, ILogger<AuthService>? logger = null)
+    public AuthService(ApplicationDbContext context, IConfiguration configuration, IMapper mapper, ILogger<AuthService>? logger = null)
     {
         _context = context;
         _configuration = configuration;
+        _mapper = mapper; // Добавлено
         _logger = logger;
+    }
+
+    // РЕАЛИЗАЦИЯ НОВОГО МЕТОДА
+    public async Task<UserResponseDto?> GetUserProfileAsync(int userId)
+    {
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+        if (user == null) return null;
+
+        var dto = _mapper.Map<UserResponseDto>(user);
+
+        // Подсчет количества рефералов по коду
+        dto.ReferralsCount = await _context.Users
+            .CountAsync(u => u.ReferredBy == user.ReferralCode);
+
+        return dto;
     }
 
     public async Task<User> RegisterUserAsync(UserRegisterDto userDto)
@@ -43,7 +61,7 @@ public class AuthService : IAuthService
             PasswordHash = HashPassword(userDto.Password),
             CityId = cityId,
             ReferralCode = referralCode,
-            ReferredBy = userDto.ReferralCode, // Записываем код как строку напрямую
+            ReferredBy = userDto.ReferralCode,
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -116,7 +134,7 @@ public class AuthService : IAuthService
         user.PhoneVerified = true;
         user.UpdatedAt = DateTime.UtcNow;
         user.VerificationCode = null;
-        user.ReferredBy = requestDto.ReferralCode; // Записываем код как строку напрямую
+        user.ReferredBy = requestDto.ReferralCode;
 
         if (requestDto.CityId.HasValue && requestDto.CityId.Value > 0) user.CityId = requestDto.CityId.Value;
         if (string.IsNullOrEmpty(user.ReferralCode)) user.ReferralCode = GenerateUniqueReferralCode();

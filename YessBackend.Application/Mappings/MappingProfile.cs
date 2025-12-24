@@ -7,14 +7,11 @@ using YessBackend.Domain.Entities;
 
 namespace YessBackend.Application.Mappings;
 
-/// <summary>
-/// AutoMapper профиль для маппинга Entity ↔ DTO
-/// </summary>
 public class MappingProfile : Profile
 {
     public MappingProfile()
     {
-        // User mappings
+        // User mappings - сохраняем твой явный стиль
         CreateMap<User, UserResponseDto>()
             .ForMember(dest => dest.Phone, opt => opt.MapFrom(src => src.Phone))
             .ForMember(dest => dest.Email, opt => opt.MapFrom(src => src.Email))
@@ -25,11 +22,13 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.EmailVerified, opt => opt.MapFrom(src => src.EmailVerified))
             .ForMember(dest => dest.CityId, opt => opt.MapFrom(src => src.CityId))
             .ForMember(dest => dest.ReferralCode, opt => opt.MapFrom(src => src.ReferralCode))
-            .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => src.CreatedAt));
+            .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => src.CreatedAt))
+            // Добавляем игнорирование для нового поля, его заполним в сервисе
+            .ForMember(dest => dest.ReferralsCount, opt => opt.Ignore());
 
         // Wallet mappings
         CreateMap<Wallet, WalletResponseDto>();
-        
+
         // Transaction mappings
         CreateMap<Transaction, TransactionResponseDto>();
 
@@ -37,8 +36,11 @@ public class MappingProfile : Profile
         CreateMap<Partner, PartnerResponseDto>();
         CreateMap<PartnerLocation, PartnerLocationResponseDto>();
 
-        // Order mappings
-        CreateMap<Order, OrderResponseDto>().ForMember(dest => dest.TransactionNumber, opt => opt.MapFrom(src => src.Transaction != null ? src.Transaction.TransactionNumber : null));
+        // Order mappings - сохраняем твою логику
+        CreateMap<Order, OrderResponseDto>()
+            .ForMember(dest => dest.TransactionNumber, opt =>
+                opt.MapFrom(src => src.Transaction != null ? src.Transaction.TransactionNumber : null));
+
         CreateMap<OrderItem, OrderItemResponseDto>();
     }
 }

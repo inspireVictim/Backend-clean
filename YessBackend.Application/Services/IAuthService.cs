@@ -7,6 +7,7 @@ namespace YessBackend.Application.Services;
 
 public interface IAuthService
 {
+    Task<UserResponseDto?> GetUserProfileAsync(int userId);
     Task<User> RegisterUserAsync(UserRegisterDto userDto);
     Task<TokenResponseDto> LoginAsync(UserLoginDto loginDto);
     Task<User?> GetUserByPhoneAsync(string phone);

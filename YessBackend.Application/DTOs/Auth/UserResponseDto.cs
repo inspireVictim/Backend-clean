@@ -17,4 +17,5 @@ public class UserResponseDto
     public int? CityId { get; set; }
     public string? ReferralCode { get; set; }
     public DateTime CreatedAt { get; set; }
+    public int ReferralsCount { get; set; }
 }

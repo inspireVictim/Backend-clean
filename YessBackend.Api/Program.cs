@@ -1,12 +1,10 @@
+using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi;
-using Microsoft.OpenApi.Models; // Для OpenApiInfo
-using System.Text;
-using System.Text.Json;
 using YessBackend.Api.Middleware;
 using YessBackend.Application.Config;
 using YessBackend.Application.Extensions;
@@ -18,11 +16,9 @@ using YessBackend.Infrastructure.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Конфигурация
 var configuration = builder.Configuration;
 
-// ПРИОРИТЕТ ДЛЯ JWT ИЗ DOCKER
-var jwtSecret = configuration["Jwt:SecretKey"] ?? throw new Exception("JWT SecretKey missing in config");
+var jwtSecret = configuration["Jwt:SecretKey"] ?? throw new Exception("JWT SecretKey missing");
 var jwtIssuer = configuration["Jwt:Issuer"] ?? "YessBackend";
 var jwtAudience = configuration["Jwt:Audience"] ?? "YessUsers";
 
@@ -31,24 +27,18 @@ builder.WebHost.ConfigureKestrel(options =>
     options.ListenAnyIP(5000);
 });
 
-// ====== FINIK Payment & SERVICES ======
 builder.Services.Configure<FinikPaymentConfig>(configuration.GetSection("FinikPayment"));
 builder.Services.AddScoped<IFinikSignatureService, FinikSignatureService>();
-
-// Регистрация сервисов платежей
 builder.Services.AddHttpClient<IFinikPaymentService, FinikPaymentService>();
 builder.Services.AddScoped<IFinikPaymentService, FinikPaymentService>();
 builder.Services.AddScoped<IWebhookService, WebhookService>();
 builder.Services.AddScoped<IOptimaPaymentService, OptimaPaymentService>();
 
-// ====== Controllers ======
 builder.Services.AddControllers()
     .AddJsonOptions(options => {
-        // Устанавливаем camelCase для фронтенда
         options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
     });
 
-// ====== CORS ======
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowCors", policy =>
@@ -57,16 +47,9 @@ builder.Services.AddCors(options =>
     });
 });
 
-// ====== JWT AUTHENTICATION ======
-builder.Services.AddAuthentication(options =>
-{
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 .AddJwtBearer(options =>
 {
-    options.RequireHttpsMetadata = false;
-    options.SaveToken = true;
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuerSigningKey = true,
@@ -83,14 +66,9 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization();
 builder.Services.AddEndpointsApiExplorer();
 
-// ====== ИСПРАВЛЕННЫЙ SWAGGER GEN ======
-builder.Services.AddSwaggerGen(c => {
-    c.SwaggerDoc("v1", new OpenApiInfo { Title = "YESS API", Version = "v1" });
-    // Фикс для корректной работы UploadBanner (обработка файлов)
-    c.MapType<IFormFile>(() => new OpenApiSchema { Type = "string", Format = "binary" });
-});
+// ИСПРАВЛЕНО: Убраны зависимости от Microsoft.OpenApi.Models
+builder.Services.AddSwaggerGen();
 
-// ====== EF Core ======
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
 {
     options.UseNpgsql(configuration.GetConnectionString("DefaultConnection"));
@@ -99,14 +77,12 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 
 builder.Services.AddHttpClient();
 
-// ВОЗВРАЩАЕМ ВАШИ ОРИГИНАЛЬНЫЕ МЕТОДЫ РАСШИРЕНИЯ
 builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructureServices(configuration);
 builder.Services.AddYessBackendServices();
 
 var app = builder.Build();
 
-// ====== SWAGGER ======
 app.UseSwagger();
 app.UseSwaggerUI(c => {
     c.SwaggerEndpoint("/swagger/v1/swagger.json", "YESS API v1");
@@ -116,12 +92,8 @@ app.UseSwaggerUI(c => {
 app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 app.UseCors("AllowCors");
 
-// ====== РАЗДАЧА БАННЕРОВ (STATIC FILES) ======
 var bannersPath = Path.Combine(app.Environment.ContentRootPath, "Storage", "Banners");
-if (!Directory.Exists(bannersPath))
-{
-    Directory.CreateDirectory(bannersPath);
-}
+if (!Directory.Exists(bannersPath)) Directory.CreateDirectory(bannersPath);
 
 app.UseStaticFiles(new StaticFileOptions
 {
@@ -130,10 +102,8 @@ app.UseStaticFiles(new StaticFileOptions
 });
 
 app.UseStaticFiles();
-
 app.UseAuthentication();
 app.UseAuthorization();
-
 app.MapControllers();
 
 app.Run();

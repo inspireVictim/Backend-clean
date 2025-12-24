@@ -1,4 +1,3 @@
-
 using Microsoft.AspNetCore.Authorization;
 
 using Microsoft.AspNetCore.Mvc;
@@ -71,13 +70,20 @@ public class AuthController : ControllerBase
 
     {
 
-        try {
+        try
+        {
 
             var user = await _authService.RegisterUserAsync(registerDto);
 
-            return Ok(_mapper.Map<UserResponseDto>(user));
+            var response = _mapper.Map<UserResponseDto>(user);
 
-        } catch (Exception ex) { return BadRequest(new { error = ex.Message }); }
+            // Новое: у свежего юзера 0 рефералов
+            response.ReferralsCount = 0;
+
+            return Ok(response);
+
+        }
+        catch (Exception ex) { return BadRequest(new { error = ex.Message }); }
 
     }
 
@@ -93,13 +99,15 @@ public class AuthController : ControllerBase
 
     {
 
-        try {
+        try
+        {
 
             var tokenResponse = await _authService.LoginAsync(loginDto);
 
             return Ok(tokenResponse);
 
-        } catch (Exception ex) { return Unauthorized(new { error = ex.Message }); }
+        }
+        catch (Exception ex) { return Unauthorized(new { error = ex.Message }); }
 
     }
 
@@ -127,7 +135,8 @@ public class AuthController : ControllerBase
 
         if (string.IsNullOrWhiteSpace(request.RefreshToken)) return BadRequest(new { error = "refresh_token is required" });
 
-        try {
+        try
+        {
 
             var jwtSection = _configuration.GetSection("Jwt");
 
@@ -135,7 +144,8 @@ public class AuthController : ControllerBase
 
             var tokenHandler = new JwtSecurityTokenHandler();
 
-            var principal = tokenHandler.ValidateToken(request.RefreshToken, new TokenValidationParameters {
+            var principal = tokenHandler.ValidateToken(request.RefreshToken, new TokenValidationParameters
+            {
 
                 ValidateIssuerSigningKey = true,
 
@@ -165,7 +175,8 @@ public class AuthController : ControllerBase
 
 
 
-            return Ok(new TokenResponseDto {
+            return Ok(new TokenResponseDto
+            {
 
                 AccessToken = _authService.CreateAccessToken(user),
 
@@ -177,7 +188,8 @@ public class AuthController : ControllerBase
 
             });
 
-        } catch { return Unauthorized(new { error = "Invalid refresh token" }); }
+        }
+        catch { return Unauthorized(new { error = "Invalid refresh token" }); }
 
     }
 
@@ -195,9 +207,19 @@ public class AuthController : ControllerBase
 
         if (string.IsNullOrEmpty(userIdStr)) return Unauthorized(new { error = "Invalid token" });
 
-        var user = await _authService.GetUserByIdAsync(int.Parse(userIdStr));
 
-        return user != null ? Ok(_mapper.Map<UserResponseDto>(user)) : NotFound();
+
+        var userId = int.Parse(userIdStr);
+        var user = await _authService.GetUserByIdAsync(userId);
+
+        if (user == null) return NotFound();
+
+        // Мапим и добавляем количество рефералов
+        var response = _mapper.Map<UserResponseDto>(user);
+        var stats = await _authService.GetReferralStatsAsync(userId);
+        response.ReferralsCount = stats.TotalReferred;
+
+        return Ok(response);
 
     }
 
@@ -213,13 +235,15 @@ public class AuthController : ControllerBase
 
     {
 
-        try {
+        try
+        {
 
             var code = await _authService.SendVerificationCodeAsync(request.PhoneNumber);
 
             return Ok(new { phone_number = request.PhoneNumber, message = "Код отправлен", success = true, code = _configuration.GetValue<bool>("DevelopmentMode", true) ? code : null });
 
-        } catch (Exception ex) { return BadRequest(new { error = ex.Message }); }
+        }
+        catch (Exception ex) { return BadRequest(new { error = ex.Message }); }
 
     }
 
@@ -233,13 +257,20 @@ public class AuthController : ControllerBase
 
     {
 
-        try {
+        try
+        {
 
             var user = await _authService.VerifyCodeAndRegisterAsync(request);
 
-            return Ok(_mapper.Map<UserResponseDto>(user));
+            var response = _mapper.Map<UserResponseDto>(user);
 
-        } catch (Exception ex) { return BadRequest(new { error = ex.Message }); }
+            // Новое: 0 рефералов при регистрации
+            response.ReferralsCount = 0;
+
+            return Ok(response);
+
+        }
+        catch (Exception ex) { return BadRequest(new { error = ex.Message }); }
 
     }
 
@@ -279,7 +310,14 @@ public class AuthController : ControllerBase
 
         var updatedUser = await _authService.UpdateUserAsync(userId, request);
 
-        return updatedUser != null ? Ok(_mapper.Map<UserResponseDto>(updatedUser)) : NotFound();
+        if (updatedUser == null) return NotFound();
+
+        // Возвращаем обновленные данные с количеством рефералов
+        var response = _mapper.Map<UserResponseDto>(updatedUser);
+        var stats = await _authService.GetReferralStatsAsync(userId);
+        response.ReferralsCount = stats.TotalReferred;
+
+        return Ok(response);
 
     }
 
@@ -290,4 +328,3 @@ public class AuthController : ControllerBase
     public class SendVerificationCodeRequestDto { [JsonPropertyName("phone_number")] public string PhoneNumber { get; set; } = string.Empty; }
 
 }
-
