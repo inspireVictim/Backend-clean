@@ -25,6 +25,15 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         builder.HasIndex(t => new { t.CreatedAt, t.Status }).HasDatabaseName("idx_transaction_date_range");
         builder.HasIndex(t => new { t.PartnerId, t.CreatedAt }).HasDatabaseName("idx_transaction_partner");
 
+        // Уникальный индекс для номера транзакции
+        builder.Property(t => t.TransactionNumber)
+            .IsRequired()
+            .HasMaxLength(20);
+
+        builder.HasIndex(t => t.TransactionNumber)
+            .IsUnique()
+            .HasDatabaseName("idx_transaction_number_unique");
+
         // Check constraint
         builder.HasCheckConstraint("check_positive_amount", "amount > 0");
 

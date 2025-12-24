@@ -82,23 +82,23 @@ public class FinikPaymentService : IFinikPaymentService
 
             if (originalAmount >= 5000)
             {
-                multiiplyer = 5; 
+                multiiplyer = 10; 
             }
-            else if (originalAmount >= 4000)
-            {
-                multiiplyer = 4; 
-            }
-            else if (originalAmount >= 3000)
-            {
-                multiiplyer = 3; 
-            }
-            else if (originalAmount >= 500)
-            {
-                multiiplyer = 2; 
-            }
+            //else if (originalAmount >= 4000)
+            //{
+            //    multiiplyer = 4; 
+            //}
+            //else if (originalAmount >= 3000)
+            //{
+            //    multiiplyer = 3; 
+            //}
+            //else if (originalAmount >= 500)
+            //{
+            //    multiiplyer = 2; 
+            //}
             else
             {
-                multiiplyer = 1; 
+                multiiplyer = 5; 
             }
 
             decimal yescoinBonus = originalAmount * multiiplyer;

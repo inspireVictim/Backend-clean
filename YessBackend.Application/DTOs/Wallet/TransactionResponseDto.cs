@@ -18,4 +18,5 @@ public class TransactionResponseDto
     public decimal YescoinEarned { get; set; }
     public string? Description { get; set; }
     public DateTime CreatedAt { get; set; }
+    public int TransactionNumber { get; set; }
 }

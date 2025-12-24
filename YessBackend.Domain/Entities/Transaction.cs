@@ -5,6 +5,10 @@ namespace YessBackend.Domain.Entities;
 
 public class Transaction
 {
+    [Required]
+    [MaxLength]
+    public String TransactionNumber { get; set; } = String.Empty;
+
     [Key]
     public int Id { get; set; }
 
