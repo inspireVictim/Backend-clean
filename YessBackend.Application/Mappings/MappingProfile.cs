@@ -38,7 +38,7 @@ public class MappingProfile : Profile
         CreateMap<PartnerLocation, PartnerLocationResponseDto>();
 
         // Order mappings
-        CreateMap<Order, OrderResponseDto>();
+        CreateMap<Order, OrderResponseDto>().ForMember(dest => dest.TransactionNumber, opt => opt.MapFrom(src => src.Transaction != null ? src.Transaction.TransactionNumber : null));
         CreateMap<OrderItem, OrderItemResponseDto>();
     }
 }

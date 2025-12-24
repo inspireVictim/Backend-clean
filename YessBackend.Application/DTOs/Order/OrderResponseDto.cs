@@ -5,6 +5,7 @@ namespace YessBackend.Application.DTOs.Order;
 /// </summary>
 public class OrderResponseDto
 {
+    public string? TransactionNumber { get; set; }
     public int Id { get; set; }
     public int UserId { get; set; }
     public int PartnerId { get; set; }

@@ -7,7 +7,7 @@ public class Transaction
 {
     [Required]
     [MaxLength]
-    public String TransactionNumber { get; set; } = String.Empty;
+    public string TransactionNumber { get; set; } = "TX-" + DateTime.UtcNow.ToString("yyMMdd") + "-" + Guid.NewGuid().ToString("N").Substring(0, 4).ToUpper();
 
     [Key]
     public int Id { get; set; }

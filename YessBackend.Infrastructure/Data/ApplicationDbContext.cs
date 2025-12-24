@@ -74,7 +74,7 @@ public class ApplicationDbContext : DbContext
 
         // 2. Регистрация Enum для PostgreSQL (версия для строк)
         // Если база данных уже содержит этот тип, мы просто уведомляем EF о его существовании
-        modelBuilder.HasPostgresEnum(null, "admin_role", null);
+        // modelBuilder.HasPostgresEnum(null, "admin_role", null);
 
         // 3. Применение конфигураций
         modelBuilder.ApplyConfiguration(new UserConfiguration());
