@@ -60,10 +60,19 @@ public class WebhooksController : ControllerBase
 
                     if (wallet != null)
                     {
-                        // --- ЛОГИКА МНОЖИТЕЛЕЙ (ПО ТЗ) ---
                         // Если сумма >= 5000, множитель x10, иначе x5
-                        decimal multiplier = amount >= 5000m ? 10m : 5m;
-                        decimal yescoinBonus = amount * multiplier;
+                        decimal multiplier = 1;
+
+                        if (amount >= 500)
+                        {
+                            multiplier = 5;
+                        }
+                        else if (amount >= 5000)
+                        {
+                            multiplier = 10;
+                        }
+
+                            decimal yescoinBonus = amount * multiplier;
                         // ---------------------------------
 
                         // Обновляем балансы
