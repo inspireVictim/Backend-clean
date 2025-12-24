@@ -28,113 +28,113 @@ public class FinikPaymentService : IFinikPaymentService
 
     public async Task<bool> ProcessWebhookAsync(FinikWebhookDto dto)
     {
-        // Берем ID платежа из того поля, которое заполнено (78 или UUID)
+        // Выбираем ID платежа (числовой ID или UUID)
         var searchId = !string.IsNullOrEmpty(dto.PaymentId) ? dto.PaymentId : dto.TransactionId;
 
-        if (string.IsNullOrEmpty(searchId)) return false;
+        if (string.IsNullOrEmpty(searchId))
+        {
+            _logger.LogWarning("!!! Webhook received without any PaymentId or TransactionId");
+            return false;
+        }
 
-        _logger.LogInformation(">>> START FINIK WEBHOOK FOR ID: {Id}", searchId);
+        _logger.LogInformation(">>> START PROCESSING WEBHOOK. ID: {Id}", searchId);
 
         try
         {
-            using var command = _context.Database.GetDbConnection().CreateCommand();
-
-            // Ищем по колонке 'id' (число), так как в базе Django это первичный ключ
-            if (int.TryParse(searchId, out int numericId)) {
-                command.CommandText = "SELECT user_id, amount FROM payments_payment WHERE id = @id";
-                var parameter = command.CreateParameter();
-                parameter.ParameterName = "@id";
-                parameter.Value = numericId;
-                command.Parameters.Add(parameter);
-            } else {
-                // Если пришел UUID
-                command.CommandText = "SELECT user_id, amount FROM payments_payment WHERE payment_id = @id::uuid";
-                var parameter = command.CreateParameter();
-                parameter.ParameterName = "@id";
-                parameter.Value = searchId;
-                command.Parameters.Add(parameter);
-            }
-
-            if (command.Connection.State != ConnectionState.Open)
-                await command.Connection.OpenAsync();
-
             string userIdStr = null;
             decimal originalAmount = 0;
 
-            using (var reader = await command.ExecuteReaderAsync())
+            // 1. ИЩЕМ ПЛАТЕЖ В БАЗЕ
+            using (var command = _context.Database.GetDbConnection().CreateCommand())
             {
-                if (await reader.ReadAsync())
+                if (int.TryParse(searchId, out int numericId))
                 {
-                    userIdStr = reader.GetValue(0).ToString();
-                    originalAmount = reader.GetDecimal(1);
+                    command.CommandText = "SELECT user_id, amount FROM payments_payment WHERE id = @id";
+                    var p = command.CreateParameter();
+                    p.ParameterName = "@id";
+                    p.Value = numericId;
+                    command.Parameters.Add(p);
                 }
                 else
                 {
-                    _logger.LogError("!!! Payment {Id} not found in database", searchId);
-                    return false;
+                    command.CommandText = "SELECT user_id, amount FROM payments_payment WHERE payment_id = @id::uuid";
+                    var p = command.CreateParameter();
+                    p.ParameterName = "@id";
+                    p.Value = searchId;
+                    command.Parameters.Add(p);
+                }
+
+                if (command.Connection.State != ConnectionState.Open)
+                    await command.Connection.OpenAsync();
+
+                using var reader = await command.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    userIdStr = reader.GetValue(0)?.ToString();
+                    originalAmount = reader.GetDecimal(1);
                 }
             }
 
-            if (!int.TryParse(userIdStr, out int userId)) return false;
-
-            // ЛОГИКА Коэфицентов: рассчитываем бонусы
-            decimal multiiplyer;
-
-            if (originalAmount >= 5000)
+            // ПРОВЕРКИ
+            if (string.IsNullOrEmpty(userIdStr) || userIdStr.ToLower() == "guest_user")
             {
-                multiiplyer = 10; 
-            }
-            //else if (originalAmount >= 4000)
-            //{
-            //    multiiplyer = 4; 
-            //}
-            //else if (originalAmount >= 3000)
-            //{
-            //    multiiplyer = 3; 
-            //}
-            //else if (originalAmount >= 500)
-            //{
-            //    multiiplyer = 2; 
-            //}
-            else
-            {
-                multiiplyer = 5; 
+                _logger.LogWarning("!!! PAYMENT {Id} IGNORED: User is '{UserStr}'. No wallet to update.", searchId, userIdStr ?? "null");
+                return false;
             }
 
-            decimal yescoinBonus = originalAmount * multiiplyer;
-            _logger.LogInformation("SUCCESS: Processing User {User}. Adding {Som} SOM and {Coin} YessCoins", userId, originalAmount, yescoinBonus);
+            if (!int.TryParse(userIdStr, out int userId))
+            {
+                _logger.LogError("!!! FAILED TO PARSE USER_ID: {Raw}", userIdStr);
+                return false;
+            }
+
+            // 2. РАСЧЕТ МНОЖИТЕЛЯ (Коэффициенты)
+            decimal multiplier = originalAmount >= 5000 ? 10m : 5m;
+            decimal yescoinBonus = originalAmount * multiplier;
+
+            _logger.LogInformation("CALCULATION: Amount {Am} * Multiplier {M} = {Res} YessCoins", originalAmount, multiplier, yescoinBonus);
 
             using var transaction = await _context.Database.BeginTransactionAsync();
 
-            // ОБНОВЛЕНИЕ КОШЕЛЬКА: Пополняем основной баланс, бонусы и статистику
-            var updateWalletSql = @"
-                UPDATE wallets 
-                SET ""Balance"" = COALESCE(""Balance"", 0) + {0}, 
-                    ""YescoinBalance"" = COALESCE(""YescoinBalance"", 0) + {1}, 
-                    ""TotalEarned"" = COALESCE(""TotalEarned"", 0) + {0},
-                    ""LastUpdated"" = {2} 
-                WHERE ""UserId"" = {3}";
+            // 3. ОБНОВЛЕНИЕ ИЛИ СОЗДАНИЕ КОШЕЛЬКА (UPSERT)
+            // Используем ON CONFLICT, чтобы если кошелька нет, он создался автоматически
+            var upsertWalletSql = @"
+                INSERT INTO wallets (""UserId"", ""Balance"", ""YescoinBalance"", ""TotalEarned"", ""LastUpdated"")
+                VALUES ({3}, {0}, {1}, {0}, {2})
+                ON CONFLICT (""UserId"") 
+                DO UPDATE SET 
+                    ""Balance"" = wallets.""Balance"" + EXCLUDED.""Balance"",
+                    ""YescoinBalance"" = wallets.""YescoinBalance"" + EXCLUDED.""YescoinBalance"",
+                    ""TotalEarned"" = wallets.""TotalEarned"" + EXCLUDED.""Balance"",
+                    ""LastUpdated"" = EXCLUDED.""LastUpdated"";";
 
-            int walletRows = await _context.Database.ExecuteSqlRawAsync(updateWalletSql, originalAmount, yescoinBonus, DateTime.UtcNow, userId);
+            int affectedRows = await _context.Database.ExecuteSqlRawAsync(upsertWalletSql,
+                originalAmount,     // {0}
+                yescoinBonus,      // {1}
+                DateTime.UtcNow,    // {2}
+                userId);            // {3}
 
-            // ОБНОВЛЕНИЕ ПЛАТЕЖА: Меняем статус на SUCCESS
+            // 4. ОБНОВЛЕНИЕ СТАТУСА ПЛАТЕЖА
             string updatePaymentSql;
-            if (int.TryParse(searchId, out int nId)) {
+            if (int.TryParse(searchId, out int nId))
+            {
                 updatePaymentSql = "UPDATE payments_payment SET status = 'SUCCESS' WHERE id = {0}";
                 await _context.Database.ExecuteSqlRawAsync(updatePaymentSql, nId);
-            } else {
+            }
+            else
+            {
                 updatePaymentSql = "UPDATE payments_payment SET status = 'SUCCESS' WHERE payment_id = {0}::uuid";
                 await _context.Database.ExecuteSqlRawAsync(updatePaymentSql, searchId);
             }
 
             await transaction.CommitAsync();
 
-            _logger.LogInformation(">>> FINISHED: Balance and Bonuses updated for User {User}. Rows affected: {Count}", userId, walletRows);
+            _logger.LogInformation(">>> SUCCESS: User {User} updated. Added {Coins} coins. (Rows: {Rows})", userId, yescoinBonus, affectedRows);
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "!!! FATAL ERROR in FinikPaymentService: {Msg}", ex.Message);
+            _logger.LogError(ex, "!!! FATAL ERROR IN WEBHOOK: {Msg}", ex.Message);
             return false;
         }
     }
@@ -142,4 +142,3 @@ public class FinikPaymentService : IFinikPaymentService
     public Task<FinikCreatePaymentResponseDto> CreatePaymentAsync(FinikCreatePaymentRequestDto dto)
         => Task.FromResult(new FinikCreatePaymentResponseDto());
 }
-
