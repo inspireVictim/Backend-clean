@@ -1,19 +1,19 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
 using System.Text.Json.Serialization;
 
 namespace YessBackend.Application.DTOs.Auth;
 
 public class UpdateProfileRequestDto
 {
-    [JsonPropertyName("first_name")]
+    [JsonPropertyName("firstName")]
     public string? FirstName { get; set; }
 
-    [JsonPropertyName("last_name")]
+    [JsonPropertyName("lastName")]
     public string? LastName { get; set; }
-
+    
+    // Оставляем старые имена как альтернативу для совместимости
+    [JsonPropertyName("first_name")]
+    public string? FirstNameAlias { set => FirstName = value; }
+    
+    [JsonPropertyName("last_name")]
+    public string? LastNameAlias { set => LastName = value; }
 }

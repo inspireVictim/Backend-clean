@@ -12,10 +12,6 @@ using YessBackend.Infrastructure.Data;
 
 namespace YessBackend.Infrastructure.Services;
 
-/// <summary>
-/// Сервис аутентификации
-/// Реализует логику регистрации с сохранением кода агента в ReferredBy
-/// </summary>
 public class AuthService : IAuthService
 {
     private readonly ApplicationDbContext _context;
@@ -31,21 +27,11 @@ public class AuthService : IAuthService
 
     public async Task<User> RegisterUserAsync(UserRegisterDto userDto)
     {
-        var existingUser = await _context.Users
-            .FirstOrDefaultAsync(u => u.Phone == userDto.PhoneNumber);
-
-        if (existingUser != null)
-        {
-            throw new InvalidOperationException("Пользователь с таким номером телефона уже существует");
-        }
+        var existingUser = await _context.Users.FirstOrDefaultAsync(u => u.Phone == userDto.PhoneNumber);
+        if (existingUser != null) throw new InvalidOperationException("Пользователь уже существует");
 
         var referralCode = GenerateUniqueReferralCode();
-
-        int? cityId = null;
-        if (userDto.CityId.HasValue && userDto.CityId.Value > 0)
-        {
-            cityId = userDto.CityId.Value;
-        }
+        int? cityId = (userDto.CityId.HasValue && userDto.CityId.Value > 0) ? userDto.CityId.Value : null;
 
         var user = new User
         {
@@ -53,13 +39,11 @@ public class AuthService : IAuthService
             Phone = userDto.PhoneNumber,
             FirstName = userDto.FirstName,
             LastName = userDto.LastName,
+            Name = $"{userDto.FirstName} {userDto.LastName}".Trim(),
             PasswordHash = HashPassword(userDto.Password),
             CityId = cityId,
             ReferralCode = referralCode,
-            // Сохраняем строку напрямую для сетевого маркетинга
-            ReferredBy = userDto.ReferralCode,
-            PhoneVerified = false,
-            EmailVerified = false,
+            ReferredBy = userDto.ReferralCode, // Записываем код как строку напрямую
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -68,107 +52,18 @@ public class AuthService : IAuthService
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
 
-        var wallet = new Wallet
-        {
-            UserId = user.Id,
-            Balance = 0.0m,
-            YescoinBalance = 0.0m,
-            TotalEarned = 0.0m,
-            TotalSpent = 0.0m,
-            LastUpdated = DateTime.UtcNow
-        };
-
+        var wallet = new Wallet { UserId = user.Id, Balance = 0.0m, YescoinBalance = 0.0m, LastUpdated = DateTime.UtcNow };
         _context.Wallets.Add(wallet);
         await _context.SaveChangesAsync();
 
         return user;
     }
 
-    public async Task<User> VerifyCodeAndRegisterAsync(VerifyCodeAndRegisterRequestDto requestDto)
-    {
-        var user = await _context.Users
-            .FirstOrDefaultAsync(u => u.Phone == requestDto.PhoneNumber);
-
-        if (user == null)
-        {
-            throw new InvalidOperationException("Код верификации не найден. Сначала отправьте код верификации.");
-        }
-
-        if (string.IsNullOrEmpty(user.VerificationCode))
-        {
-            throw new InvalidOperationException("Код верификации не найден. Сначала отправьте код верификации.");
-        }
-
-        if (user.VerificationExpiresAt.HasValue && user.VerificationExpiresAt.Value < DateTime.UtcNow)
-        {
-            throw new InvalidOperationException("Срок действия кода верификации истек. Отправьте новый код.");
-        }
-
-        if (user.VerificationCode != requestDto.Code)
-        {
-            throw new InvalidOperationException("Неверный код верификации");
-        }
-
-        if (!string.IsNullOrEmpty(user.PasswordHash))
-        {
-            throw new InvalidOperationException("Пользователь с таким номером телефона уже зарегистрирован");
-        }
-
-        user.PasswordHash = HashPassword(requestDto.Password);
-        user.FirstName = requestDto.FirstName;
-        user.LastName = requestDto.LastName;
-        user.Name = $"{requestDto.FirstName} {requestDto.LastName}";
-
-        if (requestDto.CityId.HasValue && requestDto.CityId.Value > 0)
-        {
-            user.CityId = requestDto.CityId.Value;
-        }
-
-        // ИСПРАВЛЕНО: Сохраняем введенный код агента напрямую как строку
-        if (!string.IsNullOrEmpty(requestDto.ReferralCode))
-        {
-            user.ReferredBy = requestDto.ReferralCode;
-        }
-
-        if (string.IsNullOrEmpty(user.ReferralCode))
-        {
-            user.ReferralCode = GenerateUniqueReferralCode();
-        }
-
-        user.VerificationCode = null;
-        user.PhoneVerified = true;
-        user.UpdatedAt = DateTime.UtcNow;
-
-        await _context.SaveChangesAsync();
-
-        var existingWallet = await _context.Wallets
-            .FirstOrDefaultAsync(w => w.UserId == user.Id);
-
-        if (existingWallet == null)
-        {
-            var wallet = new Wallet
-            {
-                UserId = user.Id,
-                Balance = 0.0m,
-                YescoinBalance = 0.0m,
-                TotalEarned = 0.0m,
-                TotalSpent = 0.0m,
-                LastUpdated = DateTime.UtcNow
-            };
-            _context.Wallets.Add(wallet);
-            await _context.SaveChangesAsync();
-        }
-
-        return user;
-    }
-
-    // --- Остальные методы оставлены без изменений для корректной работы JWT и паролей ---
-
     public async Task<TokenResponseDto> LoginAsync(UserLoginDto loginDto)
     {
         var user = await GetUserByPhoneAsync(loginDto.Phone);
-        if (user == null) throw new InvalidOperationException("Пользователь не найден");
-        if (!VerifyPassword(loginDto.Password, user.PasswordHash ?? string.Empty)) throw new InvalidOperationException("Неверный пароль");
+        if (user == null || !VerifyPassword(loginDto.Password, user.PasswordHash ?? string.Empty))
+            throw new InvalidOperationException("Неверный логин или пароль");
 
         user.LastLoginAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
@@ -192,47 +87,70 @@ public class AuthService : IAuthService
     {
         var random = new Random();
         var code = random.Next(100000, 999999).ToString("D6");
-
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Phone == phoneNumber);
 
         if (user != null)
         {
-            if (!string.IsNullOrEmpty(user.PasswordHash)) throw new InvalidOperationException("Пользователь уже зарегистрирован");
+            if (!string.IsNullOrEmpty(user.PasswordHash)) throw new InvalidOperationException("Уже зарегистрирован");
             user.VerificationCode = code;
             user.VerificationExpiresAt = DateTime.UtcNow.AddMinutes(10);
-            await _context.SaveChangesAsync();
         }
         else
         {
-            var tempUser = new User
-            {
-                Phone = phoneNumber,
-                Email = $"{phoneNumber}@temp.local",
-                VerificationCode = code,
-                VerificationExpiresAt = DateTime.UtcNow.AddMinutes(10),
-                PhoneVerified = false,
-                IsActive = false,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
+            var tempUser = new User { Phone = phoneNumber, Email = $"{phoneNumber}@temp.local", VerificationCode = code, VerificationExpiresAt = DateTime.UtcNow.AddMinutes(10), IsActive = false, CreatedAt = DateTime.UtcNow };
             _context.Users.Add(tempUser);
+        }
+        await _context.SaveChangesAsync();
+        return code;
+    }
+
+    public async Task<User> VerifyCodeAndRegisterAsync(VerifyCodeAndRegisterRequestDto requestDto)
+    {
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Phone == requestDto.PhoneNumber);
+        if (user == null || user.VerificationCode != requestDto.Code) throw new InvalidOperationException("Неверный код");
+
+        user.PasswordHash = HashPassword(requestDto.Password);
+        user.FirstName = requestDto.FirstName;
+        user.LastName = requestDto.LastName;
+        user.Name = $"{requestDto.FirstName} {requestDto.LastName}".Trim();
+        user.PhoneVerified = true;
+        user.UpdatedAt = DateTime.UtcNow;
+        user.VerificationCode = null;
+        user.ReferredBy = requestDto.ReferralCode; // Записываем код как строку напрямую
+
+        if (requestDto.CityId.HasValue && requestDto.CityId.Value > 0) user.CityId = requestDto.CityId.Value;
+        if (string.IsNullOrEmpty(user.ReferralCode)) user.ReferralCode = GenerateUniqueReferralCode();
+
+        await _context.SaveChangesAsync();
+
+        if (!await _context.Wallets.AnyAsync(w => w.UserId == user.Id))
+        {
+            _context.Wallets.Add(new Wallet { UserId = user.Id, Balance = 0.0m, LastUpdated = DateTime.UtcNow });
             await _context.SaveChangesAsync();
         }
-        return code;
+
+        return user;
     }
 
     public async Task<ReferralStatsResponseDto> GetReferralStatsAsync(int userId)
     {
-        // ВНИМАНИЕ: Статистика будет работать только если ReferredBy содержит ID. 
-        // Если там теперь строка кода, этот метод нужно будет переделать под поиск по строке.
         var user = await GetUserByIdAsync(userId);
-        var totalReferred = await _context.Users.CountAsync(u => u.ReferredBy == user.ReferralCode);
+        var total = await _context.Users.CountAsync(u => u.ReferredBy == user.ReferralCode);
+        return new ReferralStatsResponseDto { TotalReferred = total, ReferralCode = user?.ReferralCode };
+    }
 
-        return new ReferralStatsResponseDto
-        {
-            TotalReferred = totalReferred,
-            ReferralCode = user?.ReferralCode
-        };
+    public async Task<User?> UpdateUserAsync(int userId, UpdateProfileRequestDto dto)
+    {
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+        if (user == null) return null;
+
+        if (!string.IsNullOrWhiteSpace(dto.FirstName)) user.FirstName = dto.FirstName;
+        if (!string.IsNullOrWhiteSpace(dto.LastName)) user.LastName = dto.LastName;
+
+        user.Name = $"{user.FirstName} {user.LastName}".Trim();
+        user.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+        return user;
     }
 
     public string HashPassword(string password) => BCrypt.Net.BCrypt.HashPassword(password);
@@ -240,43 +158,30 @@ public class AuthService : IAuthService
 
     public string CreateAccessToken(User user)
     {
-        var jwtSettings = _configuration.GetSection("Jwt");
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["SecretKey"]!));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var claims = new[] { new Claim("user_id", user.Id.ToString()), new Claim("phone", user.Phone) };
-
-        var token = new JwtSecurityToken(jwtSettings["Issuer"], jwtSettings["Audience"], claims,
-            expires: DateTime.UtcNow.AddMinutes(jwtSettings.GetValue<int>("AccessTokenExpireMinutes", 60)), signingCredentials: creds);
+        var secretKey = _configuration["Jwt:SecretKey"] ?? "secret";
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
+        var claims = new[] {
+            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new Claim("user_id", user.Id.ToString()),
+            new Claim("phone", user.Phone)
+        };
+        var token = new JwtSecurityToken(
+            _configuration["Jwt:Issuer"],
+            _configuration["Jwt:Audience"],
+            claims,
+            expires: DateTime.UtcNow.AddMinutes(_configuration.GetValue<int>("Jwt:AccessTokenExpireMinutes", 60)),
+            signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256)
+        );
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
     public string CreateRefreshToken(User user)
     {
-        var jwtSettings = _configuration.GetSection("Jwt");
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSettings["SecretKey"]!));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:SecretKey"] ?? "secret"));
         var claims = new[] { new Claim("user_id", user.Id.ToString()), new Claim("type", "refresh") };
-
-        var token = new JwtSecurityToken(jwtSettings["Issuer"], jwtSettings["Audience"], claims,
-            expires: DateTime.UtcNow.AddDays(7), signingCredentials: creds);
+        var token = new JwtSecurityToken(_configuration["Jwt:Issuer"], _configuration["Jwt:Audience"], claims, expires: DateTime.UtcNow.AddDays(7), signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
-    private string GenerateUniqueReferralCode(int length = 8)
-    {
-        const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        var random = new Random();
-        var code = new string(Enumerable.Repeat(chars, length).Select(s => s[random.Next(s.Length)]).ToArray());
-        return _context.Users.Any(u => u.ReferralCode == code) ? GenerateUniqueReferralCode() : code;
-    }
-
-    public async Task<User?> UpdateUserAsync(int userId, UpdateProfileRequestDto dto)
-    {
-        var user = await _context.Users.FindAsync(userId);
-        if (user == null) return null;
-        if (!string.IsNullOrWhiteSpace(dto.FirstName)) user.FirstName = dto.FirstName;
-        if (!string.IsNullOrWhiteSpace(dto.LastName)) user.LastName = dto.LastName;
-        await _context.SaveChangesAsync();
-        return user;
-    }
+    private string GenerateUniqueReferralCode() => Guid.NewGuid().ToString("N").Substring(0, 8).ToUpper();
 }
