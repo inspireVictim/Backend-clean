@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.EntityFrameworkCore;
@@ -28,27 +29,33 @@ builder.WebHost.ConfigureKestrel(options =>
     options.ListenAnyIP(5000);
 });
 
-// ====== FINIK Payment ======
+// ====== FINIK Payment & SERVICES ======
 builder.Services.Configure<FinikPaymentConfig>(configuration.GetSection("FinikPayment"));
 builder.Services.AddScoped<IFinikSignatureService, FinikSignatureService>();
-builder.Services.AddHttpClient<IFinikPaymentService, FinikPaymentService>();
 
-// ====== WEBHOOKS & ADDITIONAL SERVICES ======
+// Регистрируем наш сервис пополнения (убеждаемся, что он доступен)
+builder.Services.AddHttpClient<IFinikPaymentService, FinikPaymentService>();
+builder.Services.AddScoped<IFinikPaymentService, FinikPaymentService>();
+
 builder.Services.AddScoped<IWebhookService, WebhookService>();
 builder.Services.AddScoped<IOptimaPaymentService, OptimaPaymentService>();
 
 // ====== Controllers ======
 builder.Services.AddControllers()
     .AddJsonOptions(options => {
-        options.JsonSerializerOptions.PropertyNamingPolicy = null;
+        // null сохраняет имена как в C# (PascalCase), 
+        // но для фронтенда лучше использовать JsonNamingPolicy.CamelCase
+        options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
     });
 
-// ====== CORS ======
+// ====== CORS (Разрешаем фронтенду доступ) ======
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowCors", policy =>
     {
-        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
     });
 });
 
@@ -103,22 +110,16 @@ app.UseSwaggerUI(c => {
 app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 app.UseCors("AllowCors");
 
-// ====== НАСТРОЙКА РАЗДАЧИ БАННЕРОВ (STATIC FILES) ======
-// Путь к физической папке: /app/Storage/Banners (внутри Docker) или корень проекта/Storage/Banners
+// ====== РАЗДАЧА БАННЕРОВ ======
 var bannersPath = Path.Combine(app.Environment.ContentRootPath, "Storage", "Banners");
-
-if (!Directory.Exists(bannersPath))
-{
-    Directory.CreateDirectory(bannersPath);
-}
+if (!Directory.Exists(bannersPath)) Directory.CreateDirectory(bannersPath);
 
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(bannersPath),
-    RequestPath = "/content/banners" // URL будет: http://host:5000/content/banners/image.jpg
+    RequestPath = "/content/banners"
 });
 
-// Стандартный UseStaticFiles для wwwroot (если нужен)
 app.UseStaticFiles();
 
 app.UseAuthentication();
