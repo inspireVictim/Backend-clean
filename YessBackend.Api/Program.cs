@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides; // Добавлено для корректного определения IP
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.FileProviders;
@@ -27,6 +28,7 @@ builder.WebHost.ConfigureKestrel(options =>
     options.ListenAnyIP(5000);
 });
 
+// Конфигурация сервисов
 builder.Services.Configure<FinikPaymentConfig>(configuration.GetSection("FinikPayment"));
 builder.Services.AddScoped<IFinikSignatureService, FinikSignatureService>();
 builder.Services.AddHttpClient<IFinikPaymentService, FinikPaymentService>();
@@ -65,8 +67,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 builder.Services.AddEndpointsApiExplorer();
-
-// ИСПРАВЛЕНО: Убраны зависимости от Microsoft.OpenApi.Models
 builder.Services.AddSwaggerGen();
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -76,12 +76,19 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 });
 
 builder.Services.AddHttpClient();
-
 builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructureServices(configuration);
 builder.Services.AddYessBackendServices();
 
 var app = builder.Build();
+
+// --- ВАЖНОЕ ИСПРАВЛЕНИЕ ДЛЯ ОПРЕДЕЛЕНИЯ IP ---
+// Позволяет приложению читать заголовок X-Forwarded-For, который передает Nginx/Proxy
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+});
+// ---------------------------------------------
 
 app.UseSwagger();
 app.UseSwaggerUI(c => {
