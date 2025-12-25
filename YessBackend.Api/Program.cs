@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.HttpOverrides; // Добавлено для корректного определения IP
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.FileProviders;
@@ -16,7 +16,6 @@ using YessBackend.Infrastructure.Extensions;
 using YessBackend.Infrastructure.Services;
 
 var builder = WebApplication.CreateBuilder(args);
-
 var configuration = builder.Configuration;
 
 var jwtSecret = configuration["Jwt:SecretKey"] ?? throw new Exception("JWT SecretKey missing");
@@ -28,11 +27,12 @@ builder.WebHost.ConfigureKestrel(options =>
     options.ListenAnyIP(5000);
 });
 
-// Конфигурация сервисов
+// Конфигурация
 builder.Services.Configure<FinikPaymentConfig>(configuration.GetSection("FinikPayment"));
-builder.Services.AddScoped<IFinikSignatureService, FinikSignatureService>();
-builder.Services.AddHttpClient<IFinikPaymentService, FinikPaymentService>();
-builder.Services.AddScoped<IFinikPaymentService, FinikPaymentService>();
+
+// ВАЖНО: Мы убрали отсюда AddScoped для Finik и RouteService, 
+// так как они теперь регистрируются внутри AddYessBackendServices через AddHttpClient
+
 builder.Services.AddScoped<IWebhookService, WebhookService>();
 builder.Services.AddScoped<IOptimaPaymentService, OptimaPaymentService>();
 
@@ -69,26 +69,20 @@ builder.Services.AddAuthorization();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-{
-    options.UseNpgsql(configuration.GetConnectionString("DefaultConnection"));
-    options.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
-});
+builder.Services.AddHttpClient(); // Для общих нужд
+builder.Services.AddDistributedMemoryCache(); // Добавили, чтобы RouteService не ругался на отсутствие кэша
 
-builder.Services.AddHttpClient();
+// Вызов наших методов расширения (из файла DependencyInjection.cs)
 builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructureServices(configuration);
 builder.Services.AddYessBackendServices();
 
 var app = builder.Build();
 
-// --- ВАЖНОЕ ИСПРАВЛЕНИЕ ДЛЯ ОПРЕДЕЛЕНИЯ IP ---
-// Позволяет приложению читать заголовок X-Forwarded-For, который передает Nginx/Proxy
 app.UseForwardedHeaders(new ForwardedHeadersOptions
 {
     ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
 });
-// ---------------------------------------------
 
 app.UseSwagger();
 app.UseSwaggerUI(c => {

@@ -35,6 +35,8 @@ public static class DependencyInjection
         // Финансовые сервисы Finik
         // ==========================
         services.AddSingleton<IFinikSignatureService, FinikSignatureService>();
+
+        // Регистрируем Finik как сервис с HttpClient
         services.AddHttpClient<IFinikPaymentService, FinikPaymentService>();
 
         return services;
@@ -58,8 +60,11 @@ public static class DependencyInjection
         // ❤️ Health
         services.AddScoped<IHealthService, HealthService>();
 
-        // 📍 Location
+        // 📍 Location & Routing
         services.AddScoped<ILocationService, LocationService>();
+
+        // --- ВОТ ТУТ ИСПРАВЛЕНИЕ: Регистрируем сервис маршрутов ---
+        services.AddHttpClient<IRouteService, RouteService>();
 
         // 📦 Storage
         services.AddScoped<IStorageService, StorageService>();
