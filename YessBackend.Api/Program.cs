@@ -30,9 +30,6 @@ builder.WebHost.ConfigureKestrel(options =>
 // Конфигурация
 builder.Services.Configure<FinikPaymentConfig>(configuration.GetSection("FinikPayment"));
 
-// ВАЖНО: Мы убрали отсюда AddScoped для Finik и RouteService, 
-// так как они теперь регистрируются внутри AddYessBackendServices через AddHttpClient
-
 builder.Services.AddScoped<IWebhookService, WebhookService>();
 builder.Services.AddScoped<IOptimaPaymentService, OptimaPaymentService>();
 
@@ -69,10 +66,10 @@ builder.Services.AddAuthorization();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-builder.Services.AddHttpClient(); // Для общих нужд
-builder.Services.AddDistributedMemoryCache(); // Добавили, чтобы RouteService не ругался на отсутствие кэша
+builder.Services.AddHttpClient(); 
+builder.Services.AddDistributedMemoryCache(); 
 
-// Вызов наших методов расширения (из файла DependencyInjection.cs)
+// Регистрация слоев
 builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructureServices(configuration);
 builder.Services.AddYessBackendServices();
