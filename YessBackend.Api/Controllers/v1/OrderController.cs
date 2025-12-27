@@ -47,6 +47,21 @@ public class OrderController : ControllerBase
         }
     }
 
+    //Генерация чека PDF
+    [HttpGet("{order_id}/receipt")]
+    public async Task<IActionResult> GetOrderReceipt(int order_id)
+    {
+        var userId = GetCurrentUserId();
+        var order = await _orderService.GetOrderByIdAsync(order_id, userId);
+
+        if (order == null) return NotFound();
+
+        // Логика генерации PDF (используя QuestPDF или другую библиотеку)
+        var pdfBytes = await _orderService.GenerateReceiptPdfAsync(order);
+
+        return File(pdfBytes, "application/pdf", $"receipt_{order_id}.pdf");
+    }
+
     [HttpGet("{order_id}")]
     public async Task<ActionResult<OrderResponseDto>> GetOrder(int order_id)
     {

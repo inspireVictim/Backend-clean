@@ -28,14 +28,14 @@ public class RouteService : IRouteService
         ApplicationDbContext context,
         IConfiguration configuration,
         IDistributedCache? cache,
-        IHttpClientFactory httpClientFactory,
+        HttpClient httpClient,
         ILogger<RouteService> logger)
     {
         _context = context;
         _configuration = configuration;
         _cache = cache;
         _logger = logger;
-        _httpClient = httpClientFactory.CreateClient();
+        _httpClient = httpClient;
     }
 
     public async Task<RouteResponseDto> CalculateRouteAsync(RouteRequestDto request)

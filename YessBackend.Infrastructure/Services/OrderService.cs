@@ -5,6 +5,9 @@ using YessBackend.Application.DTOs.Order;
 using YessBackend.Application.Services;
 using YessBackend.Domain.Entities;
 using YessBackend.Infrastructure.Data;
+using QuestPDF.Fluent;      // Добавлено
+using QuestPDF.Helpers;     // Добавлено
+using QuestPDF.Infrastructure; // Добавлено
 
 namespace YessBackend.Infrastructure.Services;
 
@@ -16,6 +19,8 @@ public class OrderService : IOrderService
     {
         _context = context;
     }
+
+    // ... (Методы CalculateOrderAsync, CreateOrderAsync, GetOrderByIdAsync без изменений)
 
     public async Task<OrderCalculateResponseDto> CalculateOrderAsync(int partnerId, List<OrderItemDto> items, int? userId = null)
     {
@@ -69,7 +74,7 @@ public class OrderService : IOrderService
                 var oldBalance = wallet.YescoinBalance;
                 wallet.YescoinBalance -= calculation.Discount;
                 wallet.TotalSpent += calculation.Discount;
-                
+
                 transaction = new Transaction
                 {
                     UserId = userId,
@@ -145,5 +150,74 @@ public class OrderService : IOrderService
         var data = $"{userId}:{partnerId}:{itemsStr}:{DateTime.UtcNow:O}";
         using var sha256 = SHA256.Create();
         return Convert.ToHexString(sha256.ComputeHash(Encoding.UTF8.GetBytes(data))).ToLowerInvariant();
+    }
+
+    // Реализация генерации PDF
+    public async Task<byte[]> GenerateReceiptPdfAsync(Order order)
+    {
+        // Обязательно для новых версий
+        QuestPDF.Settings.License = LicenseType.Community;
+
+        var document = Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Margin(0.5f, Unit.Centimetre);
+
+                // ИСПРАВЛЕНИЕ: В новых версиях используется ContinuousSize для чеков 
+                // или стандартный PageSizes.A6 через метод Size
+                page.Size(PageSizes.A6);
+
+                page.DefaultTextStyle(x => x.FontSize(9).FontFamily(Fonts.Verdana));
+
+                page.Header().Column(col =>
+                {
+                    col.Item().AlignCenter().Text("YessGo").FontSize(16).Bold().FontColor(Colors.Blue.Medium);
+                    col.Item().AlignCenter().Text(order.Partner?.Name ?? "Партнер").FontSize(10);
+                    col.Item().PaddingVertical(4).LineHorizontal(1);
+                    col.Item().Row(row =>
+                    {
+                        row.RelativeItem().Text($"Заказ №{order.Id}");
+                        row.RelativeItem().AlignRight().Text($"{order.CreatedAt:dd.MM.yy HH:mm}");
+                    });
+                });
+
+                page.Content().PaddingVertical(5).Column(col =>
+                {
+                    col.Item().Table(table =>
+                    {
+                        table.ColumnsDefinition(columns =>
+                        {
+                            columns.RelativeColumn(3);
+                            columns.RelativeColumn(1);
+                            columns.RelativeColumn(2);
+                        });
+
+                        foreach (var item in order.Items)
+                        {
+                            table.Cell().Text(item.ProductName);
+                            table.Cell().AlignCenter().Text($"{item.Quantity}");
+                            table.Cell().AlignRight().Text($"{item.Subtotal:N0}");
+                        }
+                    });
+
+                    // Разделитель: используем встроенный LineHorizontal вместо прямого рисования через SkiaSharp
+                    col.Item().PaddingVertical(5).LineHorizontal(0.5f);
+
+                    // Упрощенный вариант разделителя, если Canvas кажется сложным:
+                    // col.Item().PaddingVertical(5).LineHorizontal(0.5f);
+
+                    col.Item().AlignRight().Text(x =>
+                    {
+                        x.Span("ИТОГО: ").Bold();
+                        x.Span($"{order.FinalAmount:N0} сом").Bold();
+                    });
+                });
+
+                page.Footer().AlignCenter().Text("Спасибо за покупку!").FontSize(8).Italic();
+            });
+        });
+
+        return document.GeneratePdf();
     }
 }
